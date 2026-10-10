@@ -263,7 +263,8 @@ local function resolveIcon(icon, fallbackName)
             if type(asset) == "number" then asset = "rbxassetid://" .. tostring(asset) end
             asset = tostring(asset)
             if asset:match("^%d+$") then asset = "rbxassetid://" .. asset end
-            return "image", asset
+            local hasRect = typeof(icon.ImageRectSize) == "Vector2" and typeof(icon.ImageRectOffset) == "Vector2"
+            return "image", asset, hasRect and { icon.ImageRectSize, icon.ImageRectOffset } or nil
         end
         return "letter", tostring(icon.Text or icon.Letter or fallback):sub(1, 2)
     end
@@ -1023,12 +1024,15 @@ function WindowMT:CreateTab(name, icon)
             if not c:IsA("UICorner") then c:Destroy() end
         end
         iconImg, iconTxt = nil, nil
-        local kind, value = resolveIcon(spec, name)
+        local kind, value, rect = resolveIcon(spec, name)
         tab.IconKind = kind
         if kind == "image" then
-            iconImg = create("ImageLabel", {
-                Image = value, Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Fit, Parent = iconHolder,
-            })
+            local props = { Image = value, Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Fit, Parent = iconHolder }
+            if rect then
+                props.ImageRectSize = rect[1]
+                props.ImageRectOffset = rect[2]
+            end
+            iconImg = create("ImageLabel", props)
         else
             iconTxt = label({
                 Text = value, Font = Fonts.Title, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
@@ -1194,14 +1198,19 @@ function TabMT:CreateSection(o)
         Text = collapsible and "" or nil,
     })
     local titleX = 16
-    local iconKind, iconValue
-    if o.Icon ~= nil then iconKind, iconValue = resolveIcon(o.Icon, "") end
+    local iconKind, iconValue, iconRect
+    if o.Icon ~= nil then iconKind, iconValue, iconRect = resolveIcon(o.Icon, "") end
     if iconKind == "image" then
-        create("ImageLabel", {
+        local props = {
             Image = iconValue, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
             Size = UDim2.fromOffset(16, 16), ScaleType = Enum.ScaleType.Fit,
             ImageColor3 = pick(o.IconColor, accent), Parent = header,
-        })
+        }
+        if iconRect then
+            props.ImageRectSize = iconRect[1]
+            props.ImageRectOffset = iconRect[2]
+        end
+        create("ImageLabel", props)
         titleX = 24
     else
         create("Frame", {
