@@ -15,6 +15,11 @@
             -- o: Validate = function(key) return key == "x", "mensaje opcional" end
         })
 
+        -- Con KeyForge (ya no hace falta Keys/KeyUrl/Validate):
+        --   KeyForge = { projectId = "...", scriptId = "...", integrationToken = "..." },
+        --   LoadScript = true,   -- opcional: ejecuta client:loadScript() al validar
+        --   (el cliente queda en ks.Client por si quieres llamarlo tu mismo)
+
         if not ks:Wait() then return end   -- se cerro sin validar
         -- aqui ya puedes crear tu ventana: Library:CreateWindow(...)
 ]]
@@ -136,6 +141,8 @@ function KeySystem.new(opts)
         Keys         = opts.Keys,
         KeyUrl       = opts.KeyUrl,
         Validate     = opts.Validate,
+        KeyForge     = opts.KeyForge,      -- { projectId, scriptId, integrationToken, sdkUrl? }
+        LoadScript   = opts.LoadScript,    -- true: llama client:loadScript() tras validar
         SaveKey      = opts.SaveKey ~= false,
         AutoVerify   = opts.AutoVerify ~= false,
         Folder       = opts.Folder or "CookiesHub",
@@ -148,6 +155,7 @@ function KeySystem.new(opts)
         OnSuccess    = opts.OnSuccess,
         OnClose      = opts.OnClose,
     }
+    local getClient -- se define mas abajo (SDK de KeyForge)
     local keyPath = cfg.Folder .. "/" .. cfg.FileName
 
     local self = setmetatable({}, KeySystem)
@@ -435,7 +443,7 @@ function KeySystem.new(opts)
 
     local getBtn, getLbl = sideButton(100, "Obtener key", Theme.Accent)
     local dcBtn, dcLbl = sideButton(142, "Unirse al Discord", rgb(88, 101, 242))
-    if not cfg.KeyLink then getBtn.Visible = false end
+    if not cfg.KeyLink and not cfg.KeyForge then getBtn.Visible = false end
     if not cfg.DiscordLink and not cfg.DiscordCode then dcBtn.Visible = false end
 
     create("Frame", {
@@ -454,10 +462,35 @@ function KeySystem.new(opts)
         end)
     end
 
+    local gettingLink = false
     getBtn.Activated:Connect(function()
-        local ok = copy(cfg.KeyLink)
+        if gettingLink then return end
+        local link = cfg.KeyLink
+        if not link and cfg.KeyForge then
+            gettingLink = true
+            setStatus("Obteniendo enlace...", Theme.Muted)
+            task.spawn(function()
+                local client = getClient()
+                if client then
+                    local okK, url = pcall(function() return (client:getKeyUrl()) end)
+                    if okK and type(url) == "string" and url ~= "" then link = url end
+                end
+                gettingLink = false
+                if not link then
+                    setStatus("No se pudo obtener el enlace de la key", Theme.Error)
+                    return
+                end
+                cfg.KeyLink = link
+                local ok = copy(link)
+                flashLabel(getLbl, ok and "Link copiado" or "Sin portapapeles", "Obtener key")
+                setStatus(ok and "Enlace copiado. Pegalo en tu navegador." or ("Abre este enlace: " .. link),
+                    ok and Theme.Muted or Theme.Warning)
+            end)
+            return
+        end
+        local ok = copy(link)
         flashLabel(getLbl, ok and "Link copiado" or "Sin portapapeles", "Obtener key")
-        setStatus(ok and "Enlace copiado. Pegalo en tu navegador." or ("Abre este enlace: " .. cfg.KeyLink),
+        setStatus(ok and "Enlace copiado. Pegalo en tu navegador." or ("Abre este enlace: " .. link),
             ok and Theme.Muted or Theme.Warning)
     end)
 
@@ -569,7 +602,40 @@ function KeySystem.new(opts)
         end)
     end
 
+    local DEFAULT_SDK = "https://www.keyforge.win/sdk/client.lua"
+    function getClient()
+        if self.Client then return self.Client end
+        local kf = cfg.KeyForge
+        local okDl, src = pcall(function() return game:HttpGet(kf.sdkUrl or DEFAULT_SDK, true) end)
+        if not okDl or type(src) ~= "string" then return nil, "No se pudo descargar el SDK de KeyForge" end
+        if src:find("<!DOCTYPE", 1, true) or src:find("<html", 1, true) then
+            return nil, "KeyForge devolvio HTML en vez de Lua"
+        end
+        local compiler = loadstring or load
+        if type(compiler) ~= "function" then return nil, "Tu executor no soporta loadstring" end
+        local okC, chunk = pcall(compiler, src)
+        if not okC or type(chunk) ~= "function" then return nil, "SDK de KeyForge invalido" end
+        local okI, KeyForge = pcall(chunk)
+        if not okI or type(KeyForge) ~= "table" or type(KeyForge.new) ~= "function" then
+            return nil, "No se pudo iniciar KeyForge"
+        end
+        local okN, client = pcall(KeyForge.new, {
+            projectId = kf.projectId, scriptId = kf.scriptId, integrationToken = kf.integrationToken,
+        })
+        if not okN or type(client) ~= "table" then return nil, "Configuracion de KeyForge invalida" end
+        self.Client = client
+        return client
+    end
+
     local function check(key)
+        if cfg.KeyForge then
+            local client, err = getClient()
+            if not client then return false, err, true end
+            local okV, res = pcall(function() return client:verify(key) end)
+            if not okV then return false, "Error al contactar con KeyForge", true end
+            if type(res) == "table" and res.ok then return true end
+            return false, (type(res) == "table" and res.message) or "Key incorrecta"
+        end
         if cfg.Validate then
             local ok, a, b = pcall(cfg.Validate, key)
             if not ok then return false, "Error al validar la key" end
@@ -657,7 +723,7 @@ function KeySystem.new(opts)
         setLoading(true)
         setStatus(silent and "Comprobando key guardada..." or "Comprobando key...", Theme.Muted)
         task.spawn(function()
-            local ok, msg = check(key)
+            local ok, msg, transient = check(key)
             if self.Done or not gui.Parent then return end
             setLoading(false)
             if ok then
@@ -671,12 +737,25 @@ function KeySystem.new(opts)
                 task.wait(0.9)
                 outro(function()
                     finish(true, key)
+                    if cfg.LoadScript and self.Client then
+                        task.spawn(function()
+                            local okL, loaded = pcall(function() return self.Client:loadScript() end)
+                            if not okL then warn("[CookiesKey] loadScript:", loaded)
+                            elseif type(loaded) == "table" and not loaded.ok then
+                                warn("[CookiesKey]", loaded.code, loaded.message)
+                            end
+                        end)
+                    end
                     if cfg.OnSuccess then task.spawn(cfg.OnSuccess, key) end
                 end)
             else
                 if silent then
-                    clearSaved()
-                    setStatus("La key guardada ya no es valida", Theme.Warning)
+                    if transient then
+                        setStatus(msg or "No se pudo comprobar la key guardada", Theme.Warning)
+                    else
+                        clearSaved()
+                        setStatus("La key guardada ya no es valida", Theme.Warning)
+                    end
                     return
                 end
                 self._attempts += 1
