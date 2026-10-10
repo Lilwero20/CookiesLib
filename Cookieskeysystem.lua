@@ -1,29 +1,3 @@
---[[
-    Cookies Hub - Key System
-    Modulo independiente que reutiliza el Theme/Fonts de CookiesLib (si se lo pasas).
-
-    USO RAPIDO:
-        local Library   = loadstring(game:HttpGet("URL_DE_CookiesLib.lua"))()
-        local KeySystem = loadstring(game:HttpGet("URL_DE_CookiesKeySystem.lua"))()
-
-        local ks = KeySystem.new({
-            Library     = Library,                         -- para heredar colores y fuentes
-            KeyLink     = "https://tu-link-de-key.com",    -- boton Get Key
-            DiscordLink = "https://discord.gg/tuinvite",   -- boton Discord
-            Keys        = { "COOKIES-1234", "COOKIES-ABCD" },
-            -- o: KeyUrl = "https://.../keys.txt" (una key por linea)
-            -- o: Validate = function(key) return key == "x", "mensaje opcional" end
-        })
-
-        -- Con KeyForge (ya no hace falta Keys/KeyUrl/Validate):
-        --   KeyForge = { projectId = "...", scriptId = "...", integrationToken = "..." },
-        --   LoadScript = true,   -- opcional: ejecuta client:loadScript() al validar
-        --   (el cliente queda en ks.Client por si quieres llamarlo tu mismo)
-
-        if not ks:Wait() then return end   -- se cerro sin validar
-        -- aqui ya puedes crear tu ventana: Library:CreateWindow(...)
-]]
-
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -137,12 +111,12 @@ function KeySystem.new(opts)
         Description  = opts.Description or "Introduce tu key para desbloquear el hub.",
         KeyLink      = opts.KeyLink,
         DiscordLink  = opts.DiscordLink,
-        DiscordCode  = opts.DiscordCode, -- opcional: solo el codigo del invite (para unirse directo si el executor lo permite)
+        DiscordCode  = opts.DiscordCode,
         Keys         = opts.Keys,
         KeyUrl       = opts.KeyUrl,
         Validate     = opts.Validate,
-        KeyForge     = opts.KeyForge,      -- { projectId, scriptId, integrationToken, sdkUrl? }
-        LoadScript   = opts.LoadScript,    -- true: llama client:loadScript() tras validar
+        KeyForge     = opts.KeyForge,
+        LoadScript   = opts.LoadScript,
         SaveKey      = opts.SaveKey ~= false,
         AutoVerify   = opts.AutoVerify ~= false,
         Folder       = opts.Folder or "CookiesHub",
@@ -155,7 +129,7 @@ function KeySystem.new(opts)
         OnSuccess    = opts.OnSuccess,
         OnClose      = opts.OnClose,
     }
-    local getClient -- se define mas abajo (SDK de KeyForge)
+    local getClient
     local keyPath = cfg.Folder .. "/" .. cfg.FileName
 
     local self = setmetatable({}, KeySystem)
@@ -166,7 +140,6 @@ function KeySystem.new(opts)
     self._locked = false
     self._conns = {}
 
-    ---------------------------------------------------------------- GUI
     local parent = PlayerGui
     pcall(function()
         if typeof(gethui) == "function" then parent = gethui() end
@@ -245,7 +218,6 @@ function KeySystem.new(opts)
         return create("TextLabel", p)
     end
 
-    ---------------------------------------------------------------- Header
     local left = create("Frame", {
         BackgroundTransparency = 1, Size = UDim2.new(1, -(PANEL_W + 12), 1, 0), Parent = root,
     })
@@ -277,7 +249,6 @@ function KeySystem.new(opts)
         Position = UDim2.fromOffset(24, 80), Size = UDim2.new(1, -48, 0, 30), Parent = left,
     })
 
-    ---------------------------------------------------------------- Input
     label({
         Text = "KEY", Font = Fonts.Bold, TextSize = 10, TextColor3 = Theme.Dim,
         Position = UDim2.fromOffset(26, 120), Size = UDim2.fromOffset(60, 12), Parent = left,
@@ -316,7 +287,6 @@ function KeySystem.new(opts)
         if not self._errorShown then tween(inputStroke, { Color = Theme.Stroke, Transparency = 0.1 }, 0.18) end
     end)
 
-    ---------------------------------------------------------------- Verify
     local verifyBtn = create("TextButton", {
         Text = "", Position = UDim2.fromOffset(24, 185), Size = UDim2.new(1, -48, 0, 40),
         BackgroundColor3 = Theme.Accent, ClipsDescendants = true, Parent = left,
@@ -326,13 +296,12 @@ function KeySystem.new(opts)
         Text = "Verificar", Font = Fonts.Bold, TextSize = 14, TextColor3 = Theme.OnAccent,
         TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = verifyBtn,
     })
-    -- brillo que cruza el boton una sola vez al abrir
+
     local sheen = create("Frame", {
         Size = UDim2.new(0, 46, 2, 0), Position = UDim2.new(0, -60, -0.5, 0), Rotation = 18,
         BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.85, ZIndex = 3, Parent = verifyBtn,
     })
 
-    ---------------------------------------------------------------- Options row
     local optRow = create("Frame", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(24, 235), Size = UDim2.new(1, -48, 0, 18),
         Parent = left,
@@ -377,7 +346,6 @@ function KeySystem.new(opts)
         paintCheck(true)
     end)
 
-    ---------------------------------------------------------------- Status
     local statusLbl = label({
         Text = "", TextSize = 11, TextColor3 = Theme.Muted, TextTransparency = 1,
         Position = UDim2.fromOffset(24, 264), Size = UDim2.new(1, -48, 0, 16), Parent = left,
@@ -407,8 +375,7 @@ function KeySystem.new(opts)
         local left_ = math.max(cfg.MaxAttempts - self._attempts, 0)
         attemptsLbl.Text = self._attempts > 0 and (left_ .. " intentos restantes") or ""
     end
-
-    ---------------------------------------------------------------- Right panel
+    
     local panel = create("Frame", {
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 52),
         Size = UDim2.new(0, PANEL_W, 1, -64), BackgroundColor3 = Theme.Panel, Parent = root,
@@ -517,7 +484,6 @@ function KeySystem.new(opts)
         end
     end)
 
-    ---------------------------------------------------------------- Close + drag
     local closeBtn = create("TextButton", {
         Text = "", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14),
         Size = UDim2.fromOffset(26, 26), BackgroundColor3 = Theme.Row, ZIndex = 6, Parent = root,
@@ -552,7 +518,6 @@ function KeySystem.new(opts)
         end)
     end
 
-    ---------------------------------------------------------------- Logic
     local function cleanup()
         for _, c in ipairs(self._conns) do c:Disconnect() end
         self._conns = {}
@@ -768,7 +733,6 @@ function KeySystem.new(opts)
     end
     self.Submit = function(_, k) submit(k or keyBox.Text) end
 
-    -- eventos
     verifyBtn.MouseEnter:Connect(function()
         if not self._busy and not self._locked then tween(verifyBtn, { BackgroundColor3 = Theme.AccentHi }, 0.15) end
     end)
@@ -816,7 +780,6 @@ function KeySystem.new(opts)
         if gui then gui:Destroy() end
     end
 
-    ---------------------------------------------------------------- Intro
     local saved = loadSaved()
     if saved then keyBox.Text = saved end
     updateAttempts()
