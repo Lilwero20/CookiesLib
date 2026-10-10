@@ -2,12 +2,13 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local ContentProvider = game:GetService("ContentProvider")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local Library = {}
-Library.Version = "3.2.0"
+Library.Version = "3.3.0"
 Library.Flags = {}
 Library.Options = Library.Flags
 Library.Windows = {}
@@ -49,6 +50,7 @@ local Fonts = {
 Library.Fonts = Fonts
 
 local DEFAULT_LOGO = "rbxassetid://76143769732706"
+local DEFAULT_INTRO_LOGO = "rbxassetid://82156497939861"
 
 local SOFT, SOFT_DIR = Enum.EasingStyle.Quart, Enum.EasingDirection.InOut
 
@@ -87,6 +89,13 @@ Library.Config = {
     },
     Element = { Height = 32, Corner = 6 },
     Notify = { Duration = 4, Width = 290 },
+    Intro = {
+        Enabled = true,
+        Duration = 2.4,            -- segundos totales que dura la intro
+        Logo = DEFAULT_INTRO_LOGO, -- logo de Cookies (PNG sin fondo)
+        Width = 300, Height = 180,
+        ShowBar = true,            -- barra de carga debajo del logo
+    },
 }
 
 local function pick(...)
@@ -363,12 +372,12 @@ function Library:CreateWindow(opts)
     opts = opts or {}
     local cfg = deepCopy(Library.Config)
     if type(opts.Config) == "table" then merge(cfg, opts.Config) end
-    for _, k in ipairs({ "Tab", "Section", "Element", "Notify" }) do
+    for _, k in ipairs({ "Tab", "Section", "Element", "Notify", "Intro" }) do
         if type(opts[k]) == "table" then merge(cfg[k], opts[k]) end
     end
     for k, v in pairs(opts) do
         if k ~= "Theme" and k ~= "Config" and k ~= "Tab" and k ~= "Section"
-            and k ~= "Element" and k ~= "Notify" then
+            and k ~= "Element" and k ~= "Notify" and k ~= "Intro" then
             cfg.Window[k] = v
         end
     end
@@ -390,6 +399,7 @@ function Library:CreateWindow(opts)
     self._minId = 0
     self._minShift = 0
     self._ready = false
+    self._intro = false
     self._w, self._h = W.Width, W.Height
     self._ew, self._eh = W.Width, W.Height
 
@@ -787,12 +797,107 @@ function Library:CreateWindow(opts)
 
     fit()
     self._ready = true
-    tween(uiScale, { Scale = baseScale }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
     table.insert(Library.Windows, self)
+
+    if cfg.Intro and cfg.Intro.Enabled ~= false then
+        -- el menu queda oculto hasta que termine la intro; luego se abre con su animacion normal
+        self._intro = true
+        self.Visible = false
+        root.Visible = false
+        self:_playIntro()
+    else
+        tween(uiScale, { Scale = baseScale }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    end
     return self
 end
 
+-- Intro: logo de Cookies con fade + pop, barra de carga, y luego aparece el menu
+function WindowMT:_playIntro()
+    local I = self.Config.Intro
+    local gui = self.Gui
+    local logoId = I.Logo or DEFAULT_INTRO_LOGO
+    local W, H = I.Width or 300, I.Height or 180
+
+    local function tw(obj, props, t, style, dir)
+        local x = TweenService:Create(obj, TweenInfo.new(t,
+            style or Enum.EasingStyle.Quart, dir or Enum.EasingDirection.Out), props)
+        x:Play()
+        return x
+    end
+
+    local vp = gui.AbsoluteSize
+    local base = 1
+    if vp.X >= 50 and vp.Y >= 50 then
+        base = math.clamp(math.min((vp.X * 0.8) / W, (vp.Y * 0.5) / H), 0.4, 1)
+    end
+
+    local overlay = create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Background,
+        BackgroundTransparency = 1, Active = true, ZIndex = 100, Parent = gui,
+    })
+    local img = create("ImageLabel", {
+        Image = logoId, AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(0.5, 0, 0.5, -12), Size = UDim2.fromOffset(W, H),
+        ScaleType = Enum.ScaleType.Fit, ImageTransparency = 1, ZIndex = 101, Parent = overlay,
+    })
+    local imgScale = create("UIScale", { Scale = base * 0.8, Parent = img })
+
+    local track, fill
+    if I.ShowBar ~= false then
+        track = create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0),
+            Position = UDim2.new(0.5, 0, 0.5, (H / 2) * base + 14),
+            Size = UDim2.fromOffset(150, 4), BackgroundColor3 = Theme.Input,
+            BackgroundTransparency = 1, ZIndex = 101, Parent = overlay,
+        }, { corner(2) })
+        fill = create("Frame", {
+            Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent,
+            BackgroundTransparency = 0, ZIndex = 102, Parent = track,
+        }, { corner(2) })
+    end
+
+    task.spawn(function()
+        -- esperar a que cargue la imagen (max 3s) para que no aparezca vacia
+        local loaded = false
+        task.spawn(function()
+            pcall(function() ContentProvider:PreloadAsync({ img }) end)
+            loaded = true
+        end)
+        local t0 = os.clock()
+        while not loaded and os.clock() - t0 < 3 do task.wait() end
+        if not gui.Parent then return end
+
+        local dur = math.max(I.Duration or 2.4, 1)
+        tw(overlay, { BackgroundTransparency = 0.1 }, 0.35, Enum.EasingStyle.Quad)
+        tw(img, { ImageTransparency = 0 }, 0.45)
+        tw(imgScale, { Scale = base }, 0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        if track then
+            tw(track, { BackgroundTransparency = 0 }, 0.4)
+            tw(fill, { Size = UDim2.fromScale(1, 1) }, dur - 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+        end
+        task.wait(dur - 0.45)
+        if not gui.Parent then return end
+
+        -- salida
+        tw(img, { ImageTransparency = 1 }, 0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        tw(imgScale, { Scale = base * 1.1 }, 0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        if track then
+            tw(track, { BackgroundTransparency = 1 }, 0.25)
+            tw(fill, { BackgroundTransparency = 1 }, 0.25)
+        end
+        tw(overlay, { BackgroundTransparency = 1 }, 0.45, Enum.EasingStyle.Quad)
+        task.wait(0.3)
+        if not gui.Parent then return end
+
+        self._intro = false
+        self:SetVisible(true) -- aqui aparece el menu con su animacion normal
+        task.wait(0.2)
+        overlay:Destroy()
+    end)
+end
+
 function WindowMT:SetVisible(state)
+    if self._intro then return end
     state = state and true or false
     if self.Visible == state then return end
     self.Visible = state
