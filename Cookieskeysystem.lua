@@ -237,12 +237,6 @@ function KeySystem.new(opts)
         return create("TextLabel", p)
     end
 
-    -- linea de acento superior (sutil)
-    local topLine = create("Frame", {
-        Size = UDim2.new(0, 0, 0, 2), Position = UDim2.fromOffset(24, 0),
-        BackgroundColor3 = Theme.Accent, ZIndex = 5, Parent = root,
-    }, { corner(1) })
-
     ---------------------------------------------------------------- Header
     local left = create("Frame", {
         BackgroundTransparency = 1, Size = UDim2.new(1, -(PANEL_W + 12), 1, 0), Parent = root,
@@ -427,10 +421,6 @@ function KeySystem.new(opts)
             Text = "", Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 36),
             BackgroundColor3 = Theme.Row, Parent = panel,
         }, { corner(8), stroke(Theme.Stroke, 1, 0.5) })
-        create("Frame", {
-            AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
-            Size = UDim2.fromOffset(3, 16), BackgroundColor3 = accent, Parent = b,
-        }, { corner(2) })
         local l = label({
             Text = text, Font = Fonts.Bold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center,
             Size = UDim2.fromScale(1, 1), Parent = b,
@@ -755,7 +745,6 @@ function KeySystem.new(opts)
     self._ready = true
     tween(root, { GroupTransparency = 0 }, 0.3, Enum.EasingStyle.Quad)
     tween(uiScale, { Scale = baseScale }, 0.4, Enum.EasingStyle.Quart)
-    tween(topLine, { Size = UDim2.new(0, 56, 0, 2) }, 0.7, Enum.EasingStyle.Quart)
     task.delay(0.5, function()
         if sheen.Parent then
             tween(sheen, { Position = UDim2.new(1, 20, -0.5, 0) }, 0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
