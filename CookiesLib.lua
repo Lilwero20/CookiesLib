@@ -558,17 +558,22 @@ function Library:CreateWindow(opts)
         Position = UDim2.new(1, -16, 1, -16), Size = UDim2.new(0, cfg.Notify.Width, 1, -32), Parent = gui,
     }, { listLayout(8, { VerticalAlignment = Enum.VerticalAlignment.Bottom }) })
 
+    local FLOAT_SIZE = 74
+    -- solo el logo, sin fondo ni borde: el TextButton es transparente y sirve de area de click/arrastre
     local floating = create("TextButton", {
         Text = "", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 14, 0.5, 0),
-        Size = UDim2.fromOffset(44, 44), BackgroundColor3 = Theme.Element, Parent = gui,
-    }, { corner(22), stroke(Theme.Outline, 1) })
+        Size = UDim2.fromOffset(FLOAT_SIZE, FLOAT_SIZE), BackgroundTransparency = 1,
+        AutoButtonColor = false, Parent = gui,
+    })
+    local floatLogo
     if logo then
-        create("ImageLabel", {
+        floatLogo = create("ImageLabel", {
             Image = logo, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-            Size = UDim2.new(1, -8, 1, -8), Parent = floating,
+            Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit,
+            Parent = floating,
         })
     else
-        label({ Text = "C", Font = Fonts.Title, TextSize = 18, TextColor3 = Theme.Accent,
+        floatLogo = label({ Text = "C", Font = Fonts.Title, TextSize = 28, TextColor3 = Theme.Accent,
             TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center,
             Size = UDim2.fromScale(1, 1), Parent = floating })
     end
@@ -576,7 +581,7 @@ function Library:CreateWindow(opts)
 
     local function clampFloating(pos)
         local vp = getViewport()
-        local x = math.clamp(pos.X.Scale * vp.X + pos.X.Offset, 0, math.max(vp.X - 44, 0))
+        local x = math.clamp(pos.X.Scale * vp.X + pos.X.Offset, 0, math.max(vp.X - FLOAT_SIZE, 0))
         local y = math.clamp(pos.Y.Scale * vp.Y + pos.Y.Offset, 22, math.max(vp.Y - 22, 22))
         return UDim2.fromOffset(x, y)
     end
@@ -595,10 +600,22 @@ function Library:CreateWindow(opts)
         end, function()
             if not moved then self:Toggle() end
         end)
-        hover(floating, Theme.Element, Theme.Row)
+        floating.MouseEnter:Connect(function()
+            tween(floatLogo, { Size = UDim2.fromScale(1.08, 1.08) }, 0.15)
+        end)
+        floating.MouseLeave:Connect(function()
+            tween(floatLogo, { Size = UDim2.fromScale(1, 1) }, 0.15)
+        end)
+        floating.MouseButton1Down:Connect(function()
+            tween(floatLogo, { Size = UDim2.fromScale(0.9, 0.9) }, 0.1)
+        end)
+        floating.MouseButton1Up:Connect(function()
+            tween(floatLogo, { Size = UDim2.fromScale(1, 1) }, 0.15, Enum.EasingStyle.Back)
+        end)
     end
 
-    if W.FloatingButton == false and not IS_TOUCH then floating.Visible = false end
+    -- FloatingButton = false en CreateWindow oculta el boton (tambien en touch)
+    if W.FloatingButton == false then floating.Visible = false end
 
     local function clampRoot(pos)
         local vp = getViewport()
