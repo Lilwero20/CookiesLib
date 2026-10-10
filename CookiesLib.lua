@@ -50,7 +50,7 @@ local Fonts = {
 Library.Fonts = Fonts
 
 local DEFAULT_LOGO = "rbxassetid://76143769732706"
-local DEFAULT_INTRO_LOGO = "rbxassetid://82156497939861"
+local DEFAULT_INTRO_LOGO = "rbxassetid://134960739475303"
 
 local SOFT, SOFT_DIR = Enum.EasingStyle.Quart, Enum.EasingDirection.InOut
 
