@@ -8,7 +8,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local Library = {}
-Library.Version = "3.3.0"
+Library.Version = "3.4.0"
 Library.Flags = {}
 Library.Options = Library.Flags
 Library.Windows = {}
@@ -77,6 +77,7 @@ Library.Config = {
         Draggable = true,
         Minimizable = true,
         Closable = true,
+        Searchable = true,         -- boton de lupa (busqueda global) en la barra superior
         ShowProfile = true,
         AutoScale = true,
         DisplayOrder = 50,
@@ -89,6 +90,19 @@ Library.Config = {
     },
     Element = { Height = 32, Corner = 6 },
     Notify = { Duration = 4, Width = 290 },
+    Tooltip = {
+        Enabled = true,
+        Delay = 0.55,              -- segundos con el mouse encima antes de mostrarse
+        MaxWidth = 250,
+    },
+    Dropdown = {
+        SearchThreshold = 7,       -- con esta cantidad de opciones (o mas) aparece el buscador
+        MaxVisible = 5,
+    },
+    Search = {
+        MaxResults = 40,
+        Placeholder = "Search the whole menu...",
+    },
     Intro = {
         Enabled = true,
         Duration = 2.4,            -- segundos totales que dura la intro
@@ -97,6 +111,10 @@ Library.Config = {
         ShowBar = true,            -- barra de carga debajo del logo
     },
 }
+
+local SUB_CONFIGS = { "Tab", "Section", "Element", "Notify", "Tooltip", "Dropdown", "Search", "Intro" }
+local SUB_SET = {}
+for _, k in ipairs(SUB_CONFIGS) do SUB_SET[k] = true end
 
 local function pick(...)
     for i = 1, select("#", ...) do
@@ -295,6 +313,72 @@ local function resolveIcon(icon, fallbackName)
     return "letter", fallback
 end
 
+-- Iconos dibujados con frames (no dependen de assets): lupa, check y "x"
+local function searchIcon(parent, size, color, z)
+    local holder = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(size, size), BackgroundTransparency = 1, ZIndex = z or 1, Parent = parent,
+    })
+    local rs = math.floor(size * 0.64 + 0.5)
+    local ring = stroke(color, 1.6)
+    create("Frame", {
+        Size = UDim2.fromOffset(rs, rs), BackgroundTransparency = 1, ZIndex = z or 1, Parent = holder,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), ring })
+    local handle = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(size * 0.74, size * 0.74),
+        Size = UDim2.fromOffset(math.max(size * 0.42, 4), 2), Rotation = 45,
+        BackgroundColor3 = color, ZIndex = z or 1, Parent = holder,
+    }, { corner(1) })
+    return {
+        Frame = holder,
+        set = function(c, t)
+            tween(ring, { Color = c }, t or 0)
+            tween(handle, { BackgroundColor3 = c }, t or 0)
+        end,
+    }
+end
+
+local function checkIcon(parent, color, z)
+    local f = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromOffset(12, 12), BackgroundTransparency = 1, ZIndex = z or 1, Parent = parent,
+    })
+    local parts = {
+        create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(3, 7.5),
+            Size = UDim2.fromOffset(5, 2), Rotation = 45, BackgroundColor3 = color,
+            BackgroundTransparency = 1, ZIndex = z or 1, Parent = f,
+        }, { corner(1) }),
+        create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(7.5, 5.5),
+            Size = UDim2.fromOffset(9, 2), Rotation = -45, BackgroundColor3 = color,
+            BackgroundTransparency = 1, ZIndex = z or 1, Parent = f,
+        }, { corner(1) }),
+    }
+    return {
+        Frame = f,
+        show = function(v, c, t)
+            for _, p in ipairs(parts) do
+                tween(p, { BackgroundTransparency = v and 0 or 1, BackgroundColor3 = c or p.BackgroundColor3 }, t or 0)
+            end
+        end,
+    }
+end
+
+local function crossIcon(parent, size, color, z)
+    local bars = {}
+    for _, rot in ipairs({ 45, -45 }) do
+        table.insert(bars, create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(size, 2), Rotation = rot, BackgroundColor3 = color,
+            ZIndex = z or 1, Parent = parent,
+        }, { corner(1) }))
+    end
+    return function(c, t)
+        for _, b in ipairs(bars) do tween(b, { BackgroundColor3 = c }, t or 0) end
+    end
+end
+
 local hasFS = typeof(writefile) == "function" and typeof(readfile) == "function"
     and typeof(isfolder) == "function" and typeof(makefolder) == "function"
 
@@ -325,11 +409,38 @@ local function fire(obj, o, ...)
     for _, fn in ipairs(obj._listeners) do emit(fn, ...) end
 end
 
-local function decorate(section, obj, frame, o)
+-- Devuelve (titulo, cuerpo) para el tooltip, o nil si no hace falta (nada cortado y sin Tooltip manual)
+local function tipInfo(win, scope, o)
+    local labels, cut = {}, {}
+    local any = false
+    local s = math.max(win._scale and win._scale.Scale or 1, 0.05)
+    for _, d in ipairs(scope:GetDescendants()) do
+        if d:IsA("TextLabel") and d.Text ~= "" then
+            table.insert(labels, d)
+            local c = d.TextTruncate == Enum.TextTruncate.AtEnd and d.TextBounds.X > d.AbsoluteSize.X / s + 1
+            cut[#labels] = c
+            if c then any = true end
+        end
+    end
+    if not any and not o.Tooltip then return nil end
+    local title = labels[1] and labels[1].Text or o.Name
+    local body = o.Tooltip or o.Description
+    if body == nil or body == "" then
+        for i = 2, #labels do
+            if cut[i] then body = labels[i].Text break end
+        end
+    end
+    return title, body
+end
+
+local function decorate(section, obj, frame, o, scope)
     obj.Frame = frame
     obj.Section = section
     obj.Enabled = true
     obj._listeners = obj._listeners or {}
+    local win = section.Window
+    local entry = { kind = "Element", type = obj.Type, frame = frame, section = section._main, tab = section.Tab, o = o }
+    table.insert(win._index, entry)
     function obj:SetVisible(v) frame.Visible = v ~= false end
     function obj:SetCallback(fn) o.Callback = fn end
     function obj:OnChanged(fn)
@@ -355,11 +466,25 @@ local function decorate(section, obj, frame, o)
         if o.Flag and Library.Flags[o.Flag] == obj then Library.Flags[o.Flag] = nil end
         local kb = table.find(section.Window._keybinds, obj)
         if kb then table.remove(section.Window._keybinds, kb) end
+        local ei = table.find(win._index, entry)
+        if ei then table.remove(win._index, ei) end
         frame:Destroy()
     end
     if o.Enabled == false or o.Disabled == true then obj:SetEnabled(false) end
     if o.Visible == false then frame.Visible = false end
+    local tipScope = scope or frame
+    win:_bindTip(tipScope, function() return tipInfo(win, tipScope, o) end)
     return obj
+end
+
+-- nombre actual de una entrada del indice de busqueda
+local function entryName(e)
+    if e.kind == "Tab" then return tostring(e.tab.Name) end
+    if e.kind == "Section" then return tostring(e.section.Name) end
+    for _, d in ipairs(e.frame:GetDescendants()) do
+        if d:IsA("TextLabel") and d.Text ~= "" then return d.Text end
+    end
+    return tostring(e.o and e.o.Name or "")
 end
 
 local TOP_H = 48
@@ -372,12 +497,11 @@ function Library:CreateWindow(opts)
     opts = opts or {}
     local cfg = deepCopy(Library.Config)
     if type(opts.Config) == "table" then merge(cfg, opts.Config) end
-    for _, k in ipairs({ "Tab", "Section", "Element", "Notify", "Intro" }) do
+    for _, k in ipairs(SUB_CONFIGS) do
         if type(opts[k]) == "table" then merge(cfg[k], opts[k]) end
     end
     for k, v in pairs(opts) do
-        if k ~= "Theme" and k ~= "Config" and k ~= "Tab" and k ~= "Section"
-            and k ~= "Element" and k ~= "Notify" and k ~= "Intro" then
+        if k ~= "Theme" and k ~= "Config" and not SUB_SET[k] then
             cfg.Window[k] = v
         end
     end
@@ -395,11 +519,14 @@ function Library:CreateWindow(opts)
     self._keybinds = {}
     self._flags = {}
     self._cats = {}
+    self._index = {}
     self._navOrder = 0
     self._minId = 0
     self._minShift = 0
     self._ready = false
     self._intro = false
+    self._searchOpen = false
+    self._tipId, self._tipSeq, self._tipShown = 0, 0, false
     self._w, self._h = W.Width, W.Height
     self._ew, self._eh = W.Width, W.Height
 
@@ -429,6 +556,7 @@ function Library:CreateWindow(opts)
         end
         return s
     end
+    self._getViewport = getViewport
 
     local root = create("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
@@ -452,6 +580,9 @@ function Library:CreateWindow(opts)
         BackgroundColor3 = Theme.Stroke, BackgroundTransparency = 0.55, Parent = shell,
     })
 
+    local nBtns = (W.Searchable ~= false and 1 or 0) + (W.Minimizable and 1 or 0) + (W.Closable and 1 or 0)
+    local btnsW = math.max(nBtns, 1) * 26 + math.max(nBtns - 1, 0) * 6
+
     local titleX = 14
     if logo then
         create("ImageLabel", {
@@ -464,7 +595,7 @@ function Library:CreateWindow(opts)
 
     local titleBox = create("Frame", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(titleX, 0),
-        Size = UDim2.new(1, -(titleX + 90), 1, 0), ZIndex = 6, Parent = top,
+        Size = UDim2.new(1, -(titleX + btnsW + 32), 1, 0), ZIndex = 6, Parent = top,
     }, { listLayout(0, { VerticalAlignment = Enum.VerticalAlignment.Center }) })
     self._title = label({
         Text = W.Title, Font = Fonts.Title, TextSize = 16, ZIndex = 6,
@@ -475,11 +606,10 @@ function Library:CreateWindow(opts)
         TextColor3 = Theme.Dim, Size = UDim2.new(1, 0, 0, 12), LayoutOrder = 2, Parent = titleBox,
     })
 
-    local nBtns = (W.Minimizable and 1 or 0) + (W.Closable and 1 or 0)
     local btnHolder = create("Frame", {
         BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, -14, 0.5, 0), ZIndex = 6,
-        Size = UDim2.fromOffset(math.max(nBtns, 1) * 26 + math.max(nBtns - 1, 0) * 6, 26), Parent = top,
+        Size = UDim2.fromOffset(btnsW, 26), Parent = top,
     }, { listLayout(6, { FillDirection = Enum.FillDirection.Horizontal }) })
 
     local function iconButton(kind, order, hoverColor)
@@ -505,6 +635,14 @@ function Library:CreateWindow(opts)
             for _, f in ipairs(bars) do tween(f, { BackgroundColor3 = Theme.Muted }, 0.15) end
         end)
         return b
+    end
+    local searchBtn, searchBtnIcon
+    if W.Searchable ~= false then
+        searchBtn = create("TextButton", {
+            Text = "", Size = UDim2.fromOffset(26, 26), BackgroundColor3 = Theme.Row,
+            LayoutOrder = 0, ZIndex = 7, Parent = btnHolder,
+        }, { corner(6) })
+        searchBtnIcon = searchIcon(searchBtn, 14, Theme.Muted, 8)
     end
     local minBtn = W.Minimizable and iconButton("min", 1, Theme.RowHover) or nil
     local closeBtn = W.Closable and iconButton("close", 2, rgb(110, 40, 36)) or nil
@@ -568,6 +706,31 @@ function Library:CreateWindow(opts)
         Position = UDim2.new(1, -16, 1, -16), Size = UDim2.new(0, cfg.Notify.Width, 1, -32), Parent = gui,
     }, { listLayout(8, { VerticalAlignment = Enum.VerticalAlignment.Bottom }) })
 
+    -- Tooltip (una sola instancia por ventana, se reutiliza)
+    do
+        local maxW = cfg.Tooltip.MaxWidth or 250
+        local function limit() return create("UISizeConstraint", { MaxSize = Vector2.new(maxW - 24, math.huge) }) end
+        local c1, c2 = limit(), limit()
+        local group = create("CanvasGroup", {
+            Visible = false, GroupTransparency = 1, AutomaticSize = Enum.AutomaticSize.XY,
+            Size = UDim2.fromOffset(0, 0), BackgroundColor3 = Theme.Element, ZIndex = 200,
+            Active = false, Parent = gui,
+        }, { corner(8), stroke(Theme.Stroke, 1, 0.2), padding(12, 9, 12, 9), listLayout(3) })
+        pcall(function() group.Interactable = false end)
+        local tTitle = label({
+            Text = "", Font = Fonts.Bold, TextSize = 12, TextWrapped = true, TextTruncate = Enum.TextTruncate.None,
+            AutomaticSize = Enum.AutomaticSize.XY, Size = UDim2.fromOffset(0, 0), LayoutOrder = 1, Parent = group,
+        })
+        c1.Parent = tTitle
+        local tBody = label({
+            Text = "", TextSize = 12, TextColor3 = Theme.Muted, TextWrapped = true,
+            TextTruncate = Enum.TextTruncate.None, AutomaticSize = Enum.AutomaticSize.XY,
+            Size = UDim2.fromOffset(0, 0), LayoutOrder = 2, Parent = group,
+        })
+        c2.Parent = tBody
+        self._tip = { group = group, title = tTitle, body = tBody, limits = { c1, c2 } }
+    end
+
     local FLOAT_SIZE = 74
     -- solo el logo, sin fondo ni borde: el TextButton es transparente y sirve de area de click/arrastre
     local floating = create("TextButton", {
@@ -627,6 +790,209 @@ function Library:CreateWindow(opts)
     -- FloatingButton = false en CreateWindow oculta el boton (tambien en touch)
     if W.FloatingButton == false then floating.Visible = false end
 
+    ----------------------------------------------------------------
+    -- Busqueda global (boton de lupa en la barra superior)
+    ----------------------------------------------------------------
+    local searchPage, sbox, runSearch
+    if searchBtn then
+        local ecr = cfg.Element.Corner
+        searchPage = create("CanvasGroup", {
+            Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Background, ZIndex = 20,
+            Visible = false, GroupTransparency = 1, Active = true, Parent = content,
+        })
+        local barStroke = stroke(Theme.Stroke, 1, 0.3)
+        local bar = create("Frame", {
+            Position = UDim2.fromOffset(12, 12), Size = UDim2.new(1, -24, 0, 36),
+            BackgroundColor3 = Theme.Row, Parent = searchPage,
+        }, { corner(ecr), barStroke })
+        local ibox = create("Frame", {
+            AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
+            Size = UDim2.fromOffset(18, 18), BackgroundTransparency = 1, Parent = bar,
+        })
+        searchIcon(ibox, 14, Theme.Accent)
+        sbox = create("TextBox", {
+            Position = UDim2.fromOffset(36, 0), Size = UDim2.new(1, -72, 1, 0), BackgroundTransparency = 1,
+            Font = Fonts.Body, TextSize = 13, TextColor3 = Theme.Text, ClearTextOnFocus = false, Text = "",
+            PlaceholderText = cfg.Search.Placeholder or "Search...", PlaceholderColor3 = Theme.Dim,
+            TextXAlignment = Enum.TextXAlignment.Left, Parent = bar,
+        })
+        local clearBtn = create("TextButton", {
+            Text = "", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -6, 0.5, 0),
+            Size = UDim2.fromOffset(24, 24), BackgroundColor3 = Theme.Input, Parent = bar,
+        }, { corner(6) })
+        local paintCross = crossIcon(clearBtn, 9, Theme.Muted)
+        clearBtn.MouseEnter:Connect(function()
+            tween(clearBtn, { BackgroundColor3 = Theme.RowHover }, 0.12)
+            paintCross(Theme.Text, 0.12)
+        end)
+        clearBtn.MouseLeave:Connect(function()
+            tween(clearBtn, { BackgroundColor3 = Theme.Input }, 0.12)
+            paintCross(Theme.Muted, 0.12)
+        end)
+        sbox.Focused:Connect(function() tween(barStroke, { Color = Theme.Accent, Transparency = 0 }, 0.15) end)
+        sbox.FocusLost:Connect(function() tween(barStroke, { Color = Theme.Stroke, Transparency = 0.3 }, 0.15) end)
+
+        local countLbl = label({
+            Text = "", TextSize = 11, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(14, 52),
+            Size = UDim2.new(1, -28, 0, 14), Parent = searchPage,
+        })
+        local results = create("ScrollingFrame", {
+            BackgroundTransparency = 1, Position = UDim2.fromOffset(12, 72), Size = UDim2.new(1, -24, 1, -82),
+            CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollBarThickness = IS_TOUCH and 4 or 3, ScrollBarImageColor3 = Theme.Dim,
+            ScrollBarImageTransparency = 0.5, ScrollingDirection = Enum.ScrollingDirection.Y, Parent = searchPage,
+        }, { padding(0, 0, 6, 0), listLayout(4) })
+        local emptyLbl = label({
+            Text = "", TextSize = 12, TextColor3 = Theme.Dim, TextWrapped = true,
+            TextTruncate = Enum.TextTruncate.None, TextXAlignment = Enum.TextXAlignment.Center,
+            Position = UDim2.fromOffset(24, 100), Size = UDim2.new(1, -48, 0, 40), Parent = searchPage,
+        })
+
+        local function makeRow(item, order)
+            local e = item.e
+            local typ = e.kind == "Element" and e.type or e.kind
+            local path
+            if e.kind == "Tab" then path = "Open tab"
+            elseif e.kind == "Section" then path = tostring(e.tab.Name)
+            else path = tostring(e.tab.Name) .. " / " .. tostring(e.section and e.section.Name or "") end
+            local row = create("TextButton", {
+                Text = "", Size = UDim2.new(1, 0, 0, 44), BackgroundColor3 = Theme.Row,
+                LayoutOrder = order, Parent = results,
+            }, { corner(ecr) })
+            local ind = create("Frame", {
+                AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 4, 0.5, 0), Size = UDim2.fromOffset(2, 18),
+                BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1, Parent = row,
+            }, { corner(1) })
+            label({ Text = item.name, Font = Fonts.Bold, TextSize = 13, Position = UDim2.fromOffset(14, 6),
+                Size = UDim2.new(1, -110, 0, 18), Parent = row })
+            label({ Text = path, TextSize = 11, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(14, 24),
+                Size = UDim2.new(1, -110, 0, 14), Parent = row })
+            local chip = label({
+                Text = typ, Font = Fonts.Bold, TextSize = 10, TextColor3 = Theme.Muted,
+                TextXAlignment = Enum.TextXAlignment.Center, BackgroundTransparency = 0,
+                BackgroundColor3 = Theme.Input, AnchorPoint = Vector2.new(1, 0.5),
+                Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(0, 18),
+                AutomaticSize = Enum.AutomaticSize.X, TextTruncate = Enum.TextTruncate.None, Parent = row,
+            })
+            create("UICorner", { CornerRadius = UDim.new(0, 5), Parent = chip })
+            create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = chip })
+            row.MouseEnter:Connect(function()
+                tween(row, { BackgroundColor3 = Theme.RowHover }, 0.12)
+                tween(ind, { BackgroundTransparency = 0 }, 0.12)
+            end)
+            row.MouseLeave:Connect(function()
+                tween(row, { BackgroundColor3 = Theme.Row }, 0.12)
+                tween(ind, { BackgroundTransparency = 1 }, 0.12)
+            end)
+            row.Activated:Connect(function() self:_goTo(e) end)
+        end
+
+        runSearch = function()
+            for _, c in ipairs(results:GetChildren()) do
+                if c:IsA("GuiObject") then c:Destroy() end
+            end
+            results.CanvasPosition = Vector2.new(0, 0)
+            local q = string.lower(sbox.Text)
+            q = q:match("^%s*(.-)%s*$") or ""
+            if q == "" then
+                countLbl.Text = ""
+                emptyLbl.Text = "Type to search every tab, section and option"
+                emptyLbl.Visible = true
+                return
+            end
+            local tokens = {}
+            for t in q:gmatch("%S+") do table.insert(tokens, t) end
+            local found = {}
+            for idx, e in ipairs(self._index) do
+                local tab = e.tab
+                local alive = tab and tab._btn and tab._btn.Parent and tab._btn.Visible ~= false
+                if alive and (e.kind == "Tab" or (e.frame and e.frame.Parent and e.frame.Visible ~= false)) then
+                    local name = entryName(e)
+                    local desc = e.o and e.o.Description or ""
+                    local typ = e.kind == "Element" and e.type or e.kind
+                    local hay = string.lower(name .. " " .. tostring(desc) .. " " .. tostring(tab.Name) .. " "
+                        .. tostring(e.section and e.section.Name or "") .. " " .. tostring(typ))
+                    local match = true
+                    for _, t in ipairs(tokens) do
+                        if not hay:find(t, 1, true) then match = false break end
+                    end
+                    if match then
+                        local ln = string.lower(name)
+                        local sc = 3
+                        if ln == q then sc = 0
+                        elseif ln:sub(1, #q) == q then sc = 1
+                        elseif ln:find(q, 1, true) then sc = 2 end
+                        table.insert(found, { e = e, name = name, score = sc, idx = idx })
+                    end
+                end
+            end
+            table.sort(found, function(a, b)
+                if a.score ~= b.score then return a.score < b.score end
+                return a.idx < b.idx
+            end)
+            local maxR = cfg.Search.MaxResults or 40
+            for i = 1, math.min(#found, maxR) do makeRow(found[i], i) end
+            if #found == 0 then
+                countLbl.Text = ""
+                emptyLbl.Text = 'No results for "' .. sbox.Text .. '"'
+                emptyLbl.Visible = true
+            else
+                emptyLbl.Visible = false
+                countLbl.Text = #found .. (#found == 1 and " result" or " results")
+                    .. (#found > maxR and (" (showing first " .. maxR .. ")") or "")
+            end
+        end
+
+        sbox:GetPropertyChangedSignal("Text"):Connect(runSearch)
+        clearBtn.Activated:Connect(function()
+            if sbox.Text ~= "" then
+                sbox.Text = ""
+                sbox:CaptureFocus()
+            else
+                self:CloseSearch()
+            end
+        end)
+
+        local function paintSearchBtn(hoverOn)
+            local open = self._searchOpen
+            tween(searchBtn, { BackgroundColor3 = open and Theme.AccentSoft or (hoverOn and Theme.RowHover or Theme.Row) }, 0.15)
+            searchBtnIcon.set(open and Theme.Accent or (hoverOn and Theme.Text or Theme.Muted), 0.15)
+        end
+        searchBtn.MouseEnter:Connect(function() paintSearchBtn(true) end)
+        searchBtn.MouseLeave:Connect(function() paintSearchBtn(false) end)
+        searchBtn.Activated:Connect(function() self:ToggleSearch() end)
+
+        self._searchBox = sbox
+        self._setSearchOpen = function(state)
+            state = state and true or false
+            if state == self._searchOpen then return end
+            self._searchOpen = state
+            paintSearchBtn(false)
+            if state then
+                searchPage.Visible = true
+                searchPage.Position = UDim2.fromOffset(0, -10)
+                tween(searchPage, { GroupTransparency = 0, Position = UDim2.fromOffset(0, 0) }, 0.22,
+                    Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                runSearch()
+                task.delay(0.05, function()
+                    if self._searchOpen and sbox.Parent then sbox:CaptureFocus() end
+                end)
+            else
+                sbox:ReleaseFocus()
+                tween(searchPage, { GroupTransparency = 1, Position = UDim2.fromOffset(0, -10) }, 0.16,
+                    Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+                task.delay(0.18, function()
+                    if not self._searchOpen and searchPage.Parent then searchPage.Visible = false end
+                end)
+            end
+        end
+        table.insert(self._conns, UserInputService.InputBegan:Connect(function(input)
+            if input.KeyCode == Enum.KeyCode.Escape and self._searchOpen and self.Visible then
+                self._setSearchOpen(false)
+            end
+        end))
+    end
+
     local function clampRoot(pos)
         local vp = getViewport()
         local s = uiScale.Scale
@@ -647,6 +1013,7 @@ function Library:CreateWindow(opts)
         local startInput, startPos
         dragger(top, function(input)
             startInput, startPos = input.Position, root.Position
+            self:_hideTip()
         end, function(i)
             local d = i.Position - startInput
             root.Position = clampRoot(UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
@@ -896,6 +1263,165 @@ function WindowMT:_playIntro()
     end)
 end
 
+----------------------------------------------------------------
+-- Tooltips
+----------------------------------------------------------------
+function WindowMT:_showTip(inst, title, body)
+    local T = self._tip
+    if not T or not inst.Parent then return end
+    self._tipSeq = self._tipSeq + 1
+    local seq = self._tipSeq
+    local vp = self._getViewport()
+    local maxW = math.min(self.Config.Tooltip.MaxWidth or 250, vp.X - 24)
+    for _, c in ipairs(T.limits) do c.MaxSize = Vector2.new(math.max(maxW - 24, 60), math.huge) end
+    T.title.Text = title or ""
+    T.title.Visible = title ~= nil and title ~= ""
+    T.body.Text = body or ""
+    T.body.Visible = body ~= nil and body ~= ""
+    T.group.GroupTransparency = 1
+    T.group.Visible = true
+    self._tipShown = true
+    task.spawn(function()
+        for _ = 1, 3 do
+            task.wait()
+            if T.group.AbsoluteSize.X > 0 then break end
+        end
+        if self._tipSeq ~= seq or not inst.Parent or not self.Gui.Parent then return end
+        local origin = self.Gui.AbsolutePosition
+        local ap, as = inst.AbsolutePosition - origin, inst.AbsoluteSize
+        local sz = T.group.AbsoluteSize
+        local m, edge = 8, 6
+        local x, y, dx = ap.X + as.X + m, 0, -6
+        if x + sz.X > vp.X - edge then
+            x = ap.X - m - sz.X
+            dx = 6
+        end
+        if x < edge then
+            -- no cabe a los lados: arriba o abajo del elemento
+            x = math.clamp(ap.X, edge, math.max(vp.X - sz.X - edge, edge))
+            y = ap.Y + as.Y + m
+            if y + sz.Y > vp.Y - edge then y = ap.Y - m - sz.Y end
+            dx = 0
+        else
+            y = ap.Y + as.Y / 2 - sz.Y / 2
+        end
+        y = math.clamp(y, edge, math.max(vp.Y - sz.Y - edge, edge))
+        T.group.Position = UDim2.fromOffset(x + dx, y)
+        tween(T.group, { GroupTransparency = 0, Position = UDim2.fromOffset(x, y) }, 0.16,
+            Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    end)
+end
+
+function WindowMT:_hideTip()
+    local T = self._tip
+    if not T or not self._tipShown then return end
+    self._tipShown = false
+    self._tipOwner = nil
+    self._tipSeq = self._tipSeq + 1
+    local seq = self._tipSeq
+    tween(T.group, { GroupTransparency = 1 }, 0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    task.delay(0.12, function()
+        if self._tipSeq == seq and T.group.Parent then T.group.Visible = false end
+    end)
+end
+
+-- Enlaza un tooltip a un objeto (y a sus hijos, para que no parpadee al pasar por encima de ellos).
+-- getInfo() devuelve titulo, cuerpo; si devuelve nil no se muestra nada.
+function WindowMT:_bindTip(scope, getInfo)
+    local win = self
+    local function enter()
+        if win.Config.Tooltip.Enabled == false then return end
+        win._tipId = win._tipId + 1
+        if win._tipShown then
+            if win._tipOwner == scope then return end
+            win:_hideTip()
+        end
+        local id = win._tipId
+        task.delay(win.Config.Tooltip.Delay or 0.55, function()
+            if win._tipId ~= id or not win.Visible or win.Minimized or win._searchOpen then return end
+            if not scope.Parent then return end
+            local ok, title, body = pcall(getInfo)
+            if not ok or not title then return end
+            win._tipOwner = scope
+            win:_showTip(scope, title, body)
+        end)
+    end
+    local function leave()
+        win._tipId = win._tipId + 1
+        local id = win._tipId
+        task.delay(0.06, function()
+            if win._tipId == id then win:_hideTip() end
+        end)
+    end
+    local function bind(g)
+        if g:IsA("GuiObject") then
+            g.MouseEnter:Connect(enter)
+            g.MouseLeave:Connect(leave)
+        end
+    end
+    bind(scope)
+    for _, d in ipairs(scope:GetDescendants()) do bind(d) end
+    scope.InputBegan:Connect(function(input)
+        if isPress(input) then
+            win._tipId = win._tipId + 1
+            win:_hideTip()
+        end
+    end)
+end
+
+----------------------------------------------------------------
+-- Busqueda global
+----------------------------------------------------------------
+function WindowMT:OpenSearch(text)
+    if not self._setSearchOpen then return end
+    self._setSearchOpen(true)
+    if text ~= nil and self._searchBox then self._searchBox.Text = tostring(text) end
+end
+function WindowMT:CloseSearch()
+    if self._setSearchOpen then self._setSearchOpen(false) end
+end
+function WindowMT:ToggleSearch()
+    if self._setSearchOpen then self._setSearchOpen(not self._searchOpen) end
+end
+function WindowMT:SetSearch(text)
+    if self._searchBox then self._searchBox.Text = tostring(text or "") end
+end
+
+-- navega hasta un resultado: abre la tab, expande la seccion, hace scroll y resalta el elemento
+function WindowMT:_goTo(e)
+    self:CloseSearch()
+    local tab = e.tab
+    if not tab or not tab._btn or not tab._btn.Parent then return end
+    self:SelectTab(tab)
+    local sec = e.section
+    if sec and not sec.Open then sec:SetOpen(true) end
+    if e.kind == "Tab" then return end
+    local target = e.frame
+    task.delay(0.32, function()
+        if not target or not target.Parent then return end
+        local s = math.max(self._scale.Scale, 0.05)
+        local anchor = target
+        local sc = sec and sec._scroller
+        if sc and e.kind == "Element" and target:IsDescendantOf(sc) then
+            local y2 = (target.AbsolutePosition.Y - sc.AbsolutePosition.Y) / s + sc.CanvasPosition.Y - 4
+            tween(sc, { CanvasPosition = Vector2.new(0, math.max(y2, 0)) }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            anchor = sec._frame
+        end
+        local page = tab._page
+        local y = (anchor.AbsolutePosition.Y - page.AbsolutePosition.Y) / s + page.CanvasPosition.Y - 10
+        tween(page, { CanvasPosition = Vector2.new(0, math.max(y, 0)) }, 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
+        local st = create("UIStroke", {
+            Color = Theme.Accent, Thickness = 1.5, Transparency = 0,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = target,
+        })
+        task.delay(0.5, function()
+            if st.Parent then tween(st, { Transparency = 1 }, 0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In) end
+        end)
+        task.delay(1.6, function() if st.Parent then st:Destroy() end end)
+    end)
+end
+
 function WindowMT:SetVisible(state)
     if self._intro then return end
     state = state and true or false
@@ -905,6 +1431,7 @@ function WindowMT:SetVisible(state)
         self._root.Visible = true
         tween(self._scale, { Scale = self._baseScale() }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
     else
+        self:_hideTip()
         tween(self._scale, { Scale = 0.94 }, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         task.delay(Library.Config.Animations and (0.15 / math.max(Library.Config.AnimationSpeed or 1, 0.05)) or 0, function()
             if not self.Visible and self._root then self._root.Visible = false end
@@ -929,6 +1456,8 @@ function WindowMT:Minimize(state)
     local p = root.Position
 
     if state then
+        self:CloseSearch()
+        self:_hideTip()
         self._grip.Visible = false
         -- la barra superior se queda fija: compensamos el anclaje central de la ventana
         local shift = math.floor((self._eh - MIN_H) * self._scale.Scale / 2 + 0.5)
@@ -1198,6 +1727,7 @@ function WindowMT:CreateTab(name, icon)
         ScrollBarThickness = IS_TOUCH and 4 or 3, ScrollBarImageColor3 = Theme.Dim, ScrollBarImageTransparency = 0.5,
         ScrollingDirection = Enum.ScrollingDirection.Y, Parent = self._content,
     }, { padding(pad, pad, pad + 2, pad), listLayout(gap) })
+    page:GetPropertyChangedSignal("CanvasPosition"):Connect(function() win:_hideTip() end)
 
     local full = create("Frame", {
         BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
@@ -1257,9 +1787,17 @@ function WindowMT:CreateTab(name, icon)
     function tab:SetName(n) self.Name = tostring(n) nameLabel.Text = self.Name end
     function tab:SetVisible(v) btn.Visible = v ~= false end
     function tab:ScrollToTop() page.CanvasPosition = Vector2.new(0, 0) end
+
+    local tabEntry = { kind = "Tab", tab = tab }
+    table.insert(self._index, tabEntry)
     function tab:Destroy()
         local i = table.find(win.Tabs, self)
         if i then table.remove(win.Tabs, i) end
+        local ei = table.find(win._index, tabEntry)
+        if ei then table.remove(win._index, ei) end
+        for k = #win._index, 1, -1 do
+            if win._index[k].tab == self then table.remove(win._index, k) end
+        end
         btn:Destroy() page:Destroy()
         if win.ActiveTab == self then win.ActiveTab = nil if win.Tabs[1] then win:SelectTab(win.Tabs[1]) end end
     end
@@ -1271,6 +1809,11 @@ function WindowMT:CreateTab(name, icon)
         if not tab.Active then tween(btn, { BackgroundTransparency = 1 }, 0.15) end
     end)
     btn.Activated:Connect(function() win:SelectTab(tab) end)
+    -- en modo compacto solo se ve el icono: el tooltip muestra el nombre de la tab
+    self:_bindTip(btn, function()
+        if win._compact then return tab.Name end
+        return nil
+    end)
 
     table.insert(self.Tabs, tab)
     tab:_setCompact(self._compact == true)
@@ -1284,6 +1827,8 @@ function WindowMT:SelectTab(tab)
         for _, t in ipairs(self.Tabs) do if t.Name == tab then tab = t break end end
     end
     if type(tab) ~= "table" then return end
+    if self._searchOpen then self:CloseSearch() end
+    self:_hideTip()
     for _, t in ipairs(self.Tabs) do
         if t ~= tab and t.Active then t:_setActive(false) end
     end
@@ -1497,9 +2042,15 @@ function TabMT:CreateSection(o)
         -- solo funciona si la sección se creó con MaxHeight
         if section._scroller then maxH = h or math.huge section:_apply() end
     end
+    local secEntry = { kind = "Section", tab = self, section = section, frame = frame }
+    table.insert(win._index, secEntry)
     function section:Destroy()
         local i = table.find(self.Tab._sections, self)
         if i then table.remove(self.Tab._sections, i) end
+        for k = #win._index, 1, -1 do
+            local e = win._index[k]
+            if e == secEntry or e.section == self then table.remove(win._index, k) end
+        end
         frame:Destroy()
     end
 
@@ -1832,14 +2383,25 @@ function SectionMT:AddSlider(o)
     return obj
 end
 
+-- Dropdown: caja de seleccion con "chip" + flecha, lista con check/checkbox y buscador automatico.
+-- Opciones: Name, Options, Default, Multi, Placeholder, Searchable (nil = automatico segun cantidad), MaxVisible
 function SectionMT:AddDropdown(o)
     o = o or {}
     local multi = o.Multi == true
     local options = o.Options or {}
+    local dcfg = self.Window.Config.Dropdown or {}
     local ITEM_H = IS_TOUCH and 30 or 26
-    local MAX_VISIBLE = o.MaxVisible or 5
+    local SEARCH_H = 26
+    local MAX_VISIBLE = o.MaxVisible or dcfg.MaxVisible or 5
     local H = self:_eh(o)
     local ecorner = self.Window.Config.Element.Corner
+    local placeholder = o.Placeholder or "Select..."
+    local filter = ""
+
+    local function hasSearch()
+        if o.Searchable ~= nil then return o.Searchable == true end
+        return #options >= (dcfg.SearchThreshold or 7)
+    end
 
     local parent, order = self:_slot(o)
     local holder = create("Frame", {
@@ -1850,59 +2412,161 @@ function SectionMT:AddDropdown(o)
         Text = "", Size = UDim2.new(1, 0, 0, H), BackgroundTransparency = 1, Parent = holder,
     })
     local nameLbl = label({ Text = o.Name or "Dropdown", Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(0.45, -12, 1, 0), Parent = head })
+        Size = UDim2.new(0.44, -12, 1, 0), Parent = head })
+
+    -- "caja" de seleccion: deja claro que es un desplegable
+    local chipStroke = stroke(Theme.Stroke, 1, 0.2)
+    local chip = create("Frame", {
+        AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0),
+        Size = UDim2.new(0.56, -8, 0, H - 10), BackgroundColor3 = Theme.Input, Parent = head,
+    }, { corner(5), chipStroke })
     local valueLabel = label({
-        Text = "None", TextSize = 12, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Right,
-        AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -28, 0.5, 0),
-        Size = UDim2.new(0.55, -34, 1, 0), Parent = head,
+        Text = placeholder, TextSize = 12, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(8, 0),
+        Size = UDim2.new(1, -34, 1, 0), Parent = chip,
+    })
+    create("Frame", {
+        AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -24, 0.5, 0), Size = UDim2.new(0, 1, 1, -10),
+        BackgroundColor3 = Theme.Stroke, BackgroundTransparency = 0.4, Parent = chip,
     })
     local arrow = create("Frame", {
-        BackgroundTransparency = 1, AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -10, 0.5, 0), Size = UDim2.fromOffset(12, 12), Parent = head,
+        BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(12, 12), Parent = chip,
     })
+    local arrowBars = {}
     for _, s in ipairs({ { 45, -2 }, { -45, 2 } }) do
-        create("Frame", {
+        table.insert(arrowBars, create("Frame", {
             AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, s[2], 0.5, 0),
             Size = UDim2.fromOffset(7, 2), Rotation = s[1], BackgroundColor3 = Theme.Muted, Parent = arrow,
-        }, { corner(1) })
+        }, { corner(1) }))
     end
+
+    -- panel desplegable
+    local panel = create("Frame", {
+        Position = UDim2.fromOffset(8, H + 6), Size = UDim2.new(1, -16, 0, 0),
+        BackgroundColor3 = Theme.Input, Parent = holder,
+    }, { corner(6), stroke(Theme.Stroke, 1, 0.5) })
+    local sStroke = stroke(Theme.Stroke, 1, 0.3)
+    local searchBar = create("Frame", {
+        Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, SEARCH_H),
+        BackgroundColor3 = Theme.Row, Visible = false, Parent = panel,
+    }, { corner(5), sStroke })
+    local sIcoBox = create("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 6, 0.5, 0),
+        Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1, Parent = searchBar,
+    })
+    local sIco = searchIcon(sIcoBox, 12, Theme.Dim)
+    local sbox = create("TextBox", {
+        Position = UDim2.fromOffset(26, 0), Size = UDim2.new(1, -50, 1, 0), BackgroundTransparency = 1,
+        Font = Fonts.Body, TextSize = 12, TextColor3 = Theme.Text, ClearTextOnFocus = false, Text = "",
+        PlaceholderText = "Search...", PlaceholderColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = searchBar,
+    })
+    local sclear = create("TextButton", {
+        Text = "", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -4, 0.5, 0),
+        Size = UDim2.fromOffset(18, 18), BackgroundTransparency = 1, Visible = false, Parent = searchBar,
+    })
+    local paintX = crossIcon(sclear, 7, Theme.Muted)
+    sclear.MouseEnter:Connect(function() paintX(Theme.Text, 0.12) end)
+    sclear.MouseLeave:Connect(function() paintX(Theme.Muted, 0.12) end)
+    sbox.Focused:Connect(function()
+        tween(sStroke, { Color = Theme.Accent, Transparency = 0 }, 0.15)
+        sIco.set(Theme.Accent, 0.15)
+    end)
+    sbox.FocusLost:Connect(function()
+        tween(sStroke, { Color = Theme.Stroke, Transparency = 0.3 }, 0.15)
+        sIco.set(Theme.Dim, 0.15)
+    end)
+
     local list = create("ScrollingFrame", {
-        BackgroundTransparency = 1, Position = UDim2.fromOffset(8, H + 6), Size = UDim2.new(1, -16, 0, 0),
+        BackgroundTransparency = 1, Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, 0),
         CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Dim, ScrollBarImageTransparency = 0.5, Parent = holder,
+        ScrollBarThickness = 2, ScrollBarImageColor3 = Theme.Dim, ScrollBarImageTransparency = 0.5, Parent = panel,
     }, { listLayout(3) })
+    local emptyLbl = label({
+        Text = "No options", TextSize = 12, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Center,
+        Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, ITEM_H), Visible = false, Parent = panel,
+    })
 
     local obj = { Type = "Dropdown", Value = multi and {} or nil, Options = options, Open = false }
-    decorate(self, obj, holder, o)
+    decorate(self, obj, holder, o, head)
     local buttons = {}
 
+    local function visibleCount()
+        local n = 0
+        for _, opt in ipairs(options) do
+            local b = buttons[opt]
+            if b and b.button.Visible then n = n + 1 end
+        end
+        return n
+    end
     local function listHeight()
-        local n = math.min(#options, MAX_VISIBLE)
-        return n * ITEM_H + math.max(n - 1, 0) * 3
+        local n = math.min(math.max(visibleCount(), 1), MAX_VISIBLE)
+        return n * ITEM_H + (n - 1) * 3
     end
     local function resize()
-        local h = obj.Open and (H + 6 + listHeight() + 8) or H
-        tween(holder, { Size = UDim2.new(1, 0, 0, h) }, 0.22, SOFT, SOFT_DIR)
-        tween(list, { Size = UDim2.new(1, -16, 0, listHeight()) }, 0.22, SOFT, SOFT_DIR)
+        local searching = hasSearch()
+        local sh = searching and (SEARCH_H + 4) or 0
+        local lh = listHeight()
+        local ph = 8 + sh + lh
+        searchBar.Visible = searching
+        list.Position = UDim2.fromOffset(4, 4 + sh)
+        emptyLbl.Position = UDim2.fromOffset(4, 4 + sh)
+        tween(holder, { Size = UDim2.new(1, 0, 0, obj.Open and (H + 6 + ph + 8) or H) }, 0.22, SOFT, SOFT_DIR)
+        tween(panel, { Size = UDim2.new(1, -16, 0, ph) }, 0.22, SOFT, SOFT_DIR)
+        tween(list, { Size = UDim2.new(1, -8, 0, lh) }, 0.22, SOFT, SOFT_DIR)
         tween(arrow, { Rotation = obj.Open and 180 or 0 }, 0.22, SOFT, SOFT_DIR)
+        tween(chipStroke, { Color = obj.Open and Theme.Accent or Theme.Stroke, Transparency = obj.Open and 0 or 0.2 }, 0.2)
+        for _, bar in ipairs(arrowBars) do
+            tween(bar, { BackgroundColor3 = obj.Open and Theme.Accent or Theme.Muted }, 0.2)
+        end
     end
+    local function applyFilter()
+        local q = string.lower(filter)
+        for _, opt in ipairs(options) do
+            local b = buttons[opt]
+            if b then
+                b.button.Visible = q == "" or string.find(string.lower(tostring(opt)), q, 1, true) ~= nil
+            end
+        end
+        list.CanvasPosition = Vector2.new(0, 0)
+        local none = visibleCount() == 0
+        emptyLbl.Text = (#options > 0 and q ~= "") and "No results" or "No options"
+        emptyLbl.Visible = none
+        resize()
+    end
+    sbox:GetPropertyChangedSignal("Text"):Connect(function()
+        filter = sbox.Text:match("^%s*(.-)%s*$") or ""
+        sclear.Visible = sbox.Text ~= ""
+        applyFilter()
+    end)
+    sclear.Activated:Connect(function()
+        sbox.Text = ""
+        sbox:CaptureFocus()
+    end)
+
     local function isSelected(opt)
         if multi then return table.find(obj.Value, opt) ~= nil end
         return obj.Value == opt
     end
-    local function paint()
-        for opt, b in pairs(buttons) do
-            local sel = isSelected(opt)
-            tween(b.label, { TextColor3 = sel and Theme.Accent or Theme.Text }, 0.15)
-            tween(b.dot, { BackgroundTransparency = sel and 0 or 1 }, 0.15)
+    local function paintItem(b, sel)
+        tween(b.button, { BackgroundTransparency = sel and 0 or 1, BackgroundColor3 = sel and Theme.AccentSoft or Theme.RowHover }, 0.15)
+        tween(b.bar, { BackgroundTransparency = sel and 0 or 1 }, 0.15)
+        tween(b.label, { TextColor3 = sel and Theme.Accent or Theme.Text }, 0.15)
+        if b.markBox then
+            tween(b.markBox, { BackgroundColor3 = sel and Theme.Accent or Theme.Input }, 0.15)
+            tween(b.markStroke, { Color = sel and Theme.Accent or Theme.Stroke }, 0.15)
         end
+        b.check.show(sel, multi and Theme.OnAccent or Theme.Accent, 0.15)
+    end
+    local function paint()
+        for opt, b in pairs(buttons) do paintItem(b, isSelected(opt)) end
         if multi then
             local names = {}
             for _, v in ipairs(obj.Value) do table.insert(names, tostring(v)) end
-            valueLabel.Text = #names > 0 and table.concat(names, ", ") or "None"
+            valueLabel.Text = #names > 0 and table.concat(names, ", ") or placeholder
             valueLabel.TextColor3 = #names > 0 and Theme.Text or Theme.Dim
         else
-            valueLabel.Text = obj.Value ~= nil and tostring(obj.Value) or "None"
+            valueLabel.Text = obj.Value ~= nil and tostring(obj.Value) or placeholder
             valueLabel.TextColor3 = obj.Value ~= nil and Theme.Text or Theme.Dim
         end
     end
@@ -1924,7 +2588,14 @@ function SectionMT:AddDropdown(o)
     function obj:Get() return current() end
     function obj:SetOpen(state)
         obj.Open = state and true or false
+        if not obj.Open then
+            sbox:ReleaseFocus()
+            if sbox.Text ~= "" then sbox.Text = "" end -- reinicia el filtro al cerrar
+        end
         resize()
+        if obj.Open and hasSearch() and not IS_TOUCH then
+            task.defer(function() if obj.Open then sbox:CaptureFocus() end end)
+        end
     end
     function obj:SetText(t) nameLbl.Text = tostring(t) end
 
@@ -1936,8 +2607,7 @@ function SectionMT:AddDropdown(o)
             fire(obj, o, current())
         else
             obj:Set(opt)
-            obj.Open = false
-            resize()
+            obj:SetOpen(false)
         end
     end
 
@@ -1946,24 +2616,45 @@ function SectionMT:AddDropdown(o)
         buttons = {}
         options = newOptions or {}
         obj.Options = options
+        if sbox.Text ~= "" then sbox.Text = "" end
+        filter = ""
         for i, opt in ipairs(options) do
             local btn = create("TextButton", {
-                Text = "", Size = UDim2.new(1, 0, 0, ITEM_H), BackgroundColor3 = Theme.Input,
-                LayoutOrder = i, Parent = list,
+                Text = "", Size = UDim2.new(1, 0, 0, ITEM_H), BackgroundColor3 = Theme.RowHover,
+                BackgroundTransparency = 1, LayoutOrder = i, Parent = list,
             }, { corner(5) })
-            local lbl = label({ Text = tostring(opt), TextSize = 12, Position = UDim2.fromOffset(10, 0),
-                Size = UDim2.new(1, -30, 1, 0), Parent = btn })
-            local dot = create("Frame", {
-                AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
-                Size = UDim2.fromOffset(8, 8), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1,
-                Parent = btn,
-            }, { corner(4) })
-            hover(btn, Theme.Input, Theme.RowHover)
+            local bar = create("Frame", {
+                AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(2, 12),
+                BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1, Parent = btn,
+            }, { corner(1) })
+            local lbl = label({ Text = tostring(opt), TextSize = 12, Position = UDim2.fromOffset(12, 0),
+                Size = UDim2.new(1, -38, 1, 0), Parent = btn })
+            local mark = create("Frame", {
+                AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0),
+                Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1, Parent = btn,
+            })
+            local markBox, markStroke
+            if multi then
+                markBox = mark
+                markBox.BackgroundTransparency = 0
+                markBox.BackgroundColor3 = Theme.Input
+                markStroke = stroke(Theme.Stroke, 1, 0)
+                corner(4).Parent = markBox
+                markStroke.Parent = markBox
+            end
+            local check = checkIcon(mark, Theme.Accent)
+            local item = { button = btn, label = lbl, bar = bar, markBox = markBox, markStroke = markStroke, check = check }
+            btn.MouseEnter:Connect(function()
+                if not isSelected(opt) then tween(btn, { BackgroundTransparency = 0 }, 0.12) end
+            end)
+            btn.MouseLeave:Connect(function()
+                if not isSelected(opt) then tween(btn, { BackgroundTransparency = 1 }, 0.12) end
+            end)
             btn.Activated:Connect(function() toggleOption(opt) end)
-            buttons[opt] = { button = btn, label = lbl, dot = dot }
+            buttons[opt] = item
         end
         if keepValue then obj:Set(obj.Value, true) else obj:Set(multi and {} or nil, true) end
-        resize()
+        applyFilter()
     end
     obj.SetOptions = obj.Refresh
     function obj:AddOption(opt)
@@ -1979,15 +2670,18 @@ function SectionMT:AddDropdown(o)
 
     head.Activated:Connect(function()
         if not obj.Enabled then return end
-        obj.Open = not obj.Open
-        resize()
+        obj:SetOpen(not obj.Open)
     end)
-    head.MouseEnter:Connect(function() tween(holder, { BackgroundColor3 = Theme.RowHover }, 0.15) end)
-    head.MouseLeave:Connect(function() tween(holder, { BackgroundColor3 = Theme.Row }, 0.15) end)
+    head.MouseEnter:Connect(function()
+        tween(holder, { BackgroundColor3 = Theme.RowHover }, 0.15)
+        if not obj.Open then tween(chipStroke, { Color = Theme.Dim }, 0.15) end
+    end)
+    head.MouseLeave:Connect(function()
+        tween(holder, { BackgroundColor3 = Theme.Row }, 0.15)
+        if not obj.Open then tween(chipStroke, { Color = Theme.Stroke }, 0.15) end
+    end)
 
     obj:Refresh(options)
-    obj.Open = false
-    resize()
     if o.Default ~= nil then obj:Set(o.Default, true) end
     self:_register(o.Flag, obj)
     return obj
@@ -2167,7 +2861,7 @@ function SectionMT:AddColorPicker(o)
     local default = o.Default or Theme.Accent
     local h, s, v = default:ToHSV()
     local obj = { Type = "ColorPicker", Value = default, Open = false }
-    decorate(self, obj, holder, o)
+    decorate(self, obj, holder, o, head)
 
     local function refresh(silent)
         local c = Color3.fromHSV(h, s, v)
@@ -2293,6 +2987,14 @@ function WindowMT:CreateSettingsTab(name, icon)
     ui:AddToggle({
         Name = "Animations", Default = Library.Config.Animations,
         Callback = function(v) Library.Config.Animations = v end,
+    })
+    ui:AddToggle({
+        Name = "Tooltips", Default = win.Config.Tooltip.Enabled ~= false,
+        Description = "Muestra la descripción completa al dejar el mouse encima",
+        Callback = function(v)
+            win.Config.Tooltip.Enabled = v
+            if not v then win:_hideTip() end
+        end,
     })
     ui:AddSlider({
         Name = "Animation Speed", Min = 0.25, Max = 3, Increment = 0.25, Suffix = "x",
