@@ -3,6 +3,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local ContentProvider = game:GetService("ContentProvider")
+local TextService = game:GetService("TextService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -417,7 +418,12 @@ local function tipInfo(win, scope, o)
     for _, d in ipairs(scope:GetDescendants()) do
         if d:IsA("TextLabel") and d.Text ~= "" then
             table.insert(labels, d)
-            local c = d.TextTruncate == Enum.TextTruncate.AtEnd and d.TextBounds.X > d.AbsoluteSize.X / s + 1
+            -- TextBounds ya viene recortado con TextTruncate, asi que medimos el texto completo
+            local c = false
+            if d.TextTruncate == Enum.TextTruncate.AtEnd then
+                local okM, full = pcall(TextService.GetTextSize, TextService, d.Text, d.TextSize, d.Font, Vector2.new(10000, 10000))
+                c = okM and full.X > d.AbsoluteSize.X / s + 1
+            end
             cut[#labels] = c
             if c then any = true end
         end
