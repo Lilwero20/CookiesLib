@@ -639,9 +639,9 @@ function Library:CreateWindow(opts)
     local searchBtn, searchBtnIcon
     if W.Searchable ~= false then
         searchBtn = create("TextButton", {
-            Text = "", Size = UDim2.fromOffset(26, 26), BackgroundColor3 = Theme.Row,
+            Text = "", Size = UDim2.fromOffset(26, 26), BackgroundTransparency = 1,
             LayoutOrder = 0, ZIndex = 7, Parent = btnHolder,
-        }, { corner(6) })
+        })
         searchBtnIcon = searchIcon(searchBtn, 14, Theme.Muted, 8)
     end
     local minBtn = W.Minimizable and iconButton("min", 1, Theme.RowHover) or nil
@@ -955,7 +955,6 @@ function Library:CreateWindow(opts)
 
         local function paintSearchBtn(hoverOn)
             local open = self._searchOpen
-            tween(searchBtn, { BackgroundColor3 = open and Theme.AccentSoft or (hoverOn and Theme.RowHover or Theme.Row) }, 0.15)
             searchBtnIcon.set(open and Theme.Accent or (hoverOn and Theme.Text or Theme.Muted), 0.15)
         end
         searchBtn.MouseEnter:Connect(function() paintSearchBtn(true) end)
