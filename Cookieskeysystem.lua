@@ -108,7 +108,7 @@ function KeySystem.new(opts)
         Title        = opts.Title or "Cookies Hub",
         Subtitle     = opts.Subtitle or "Key System",
         Logo         = opts.Logo == nil and DEFAULT_LOGO or opts.Logo,
-        Description  = opts.Description or "Introduce tu key para desbloquear el hub.",
+        Description  = opts.Description or "Enter your key to unlock the hub.",
         KeyLink      = opts.KeyLink,
         DiscordLink  = opts.DiscordLink,
         DiscordCode  = opts.DiscordCode,
@@ -124,7 +124,7 @@ function KeySystem.new(opts)
         MaxAttempts  = opts.MaxAttempts or 5,
         Cooldown     = opts.Cooldown or 15,
         Blur         = opts.Blur ~= false,
-        Note         = opts.Note or "Las keys son gratuitas. Completa los pasos del enlace y vuelve aqui.",
+        Note         = opts.Note or "Keys are free. Complete the steps in the link and come back here.",
         DisplayOrder = opts.DisplayOrder or 100,
         OnSuccess    = opts.OnSuccess,
         OnClose      = opts.OnClose,
@@ -264,14 +264,14 @@ function KeySystem.new(opts)
     local keyBox = create("TextBox", {
         Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, canPaste and -86 or -28, 1, 0),
         BackgroundTransparency = 1, Font = Fonts.Body, TextSize = 13, TextColor3 = Theme.Text,
-        PlaceholderText = "Introduce tu key", PlaceholderColor3 = Theme.Dim, Text = "",
+        PlaceholderText = "Enter your key", PlaceholderColor3 = Theme.Dim, Text = "",
         ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd, Parent = inputRow,
     })
     local pasteBtn
     if canPaste then
         pasteBtn = create("TextButton", {
-            Text = "Pegar", Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.Muted,
+            Text = "Paste", Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.Muted,
             AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -7, 0.5, 0),
             Size = UDim2.fromOffset(52, 24), BackgroundColor3 = Theme.Row, Parent = inputRow,
         }, { corner(6) })
@@ -293,7 +293,7 @@ function KeySystem.new(opts)
     }, { corner(8) })
     local verifyScale = create("UIScale", { Scale = 1, Parent = verifyBtn })
     local verifyLbl = label({
-        Text = "Verificar", Font = Fonts.Bold, TextSize = 14, TextColor3 = Theme.OnAccent,
+        Text = "Verify", Font = Fonts.Bold, TextSize = 14, TextColor3 = Theme.OnAccent,
         TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), Parent = verifyBtn,
     })
 
@@ -318,11 +318,11 @@ function KeySystem.new(opts)
         Size = UDim2.fromOffset(0, 0), BackgroundColor3 = Theme.Accent, Parent = box,
     }, { corner(2) })
     label({
-        Text = "Recordar key", TextSize = 11, TextColor3 = Theme.Muted,
+        Text = "Remember key", TextSize = 11, TextColor3 = Theme.Muted,
         Position = UDim2.fromOffset(23, 0), Size = UDim2.new(1, -23, 1, 0), Parent = checkBtn,
     })
     local clearBtn = create("TextButton", {
-        Text = "Borrar key guardada", Font = Fonts.Body, TextSize = 11, TextColor3 = Theme.Dim,
+        Text = "Delete saved key", Font = Fonts.Body, TextSize = 11, TextColor3 = Theme.Dim,
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 0),
         Size = UDim2.fromOffset(130, 18), BackgroundTransparency = 1,
         TextXAlignment = Enum.TextXAlignment.Right, Parent = optRow,
@@ -373,7 +373,7 @@ function KeySystem.new(opts)
     end
     local function updateAttempts()
         local left_ = math.max(cfg.MaxAttempts - self._attempts, 0)
-        attemptsLbl.Text = self._attempts > 0 and (left_ .. " intentos restantes") or ""
+        attemptsLbl.Text = self._attempts > 0 and (left_ .. " attempts left") or ""
     end
     
     local panel = create("Frame", {
@@ -382,7 +382,7 @@ function KeySystem.new(opts)
     }, { corner(10), stroke(Theme.Stroke, 1, 0.45) })
 
     label({
-        Text = "¿Necesitas una key?", Font = Fonts.Bold, TextSize = 13,
+        Text = "Need a key?", Font = Fonts.Bold, TextSize = 13,
         Position = UDim2.fromOffset(16, 14), Size = UDim2.new(1, -32, 0, 18), Parent = panel,
     })
     label({
@@ -408,8 +408,8 @@ function KeySystem.new(opts)
         return b, l
     end
 
-    local getBtn, getLbl = sideButton(100, "Obtener key", Theme.Accent)
-    local dcBtn, dcLbl = sideButton(142, "Unirse al Discord", rgb(88, 101, 242))
+    local getBtn, getLbl = sideButton(100, "Get key", Theme.Accent)
+    local dcBtn, dcLbl = sideButton(142, "Join Discord", rgb(88, 101, 242))
     if not cfg.KeyLink and not cfg.KeyForge then getBtn.Visible = false end
     if not cfg.DiscordLink and not cfg.DiscordCode then dcBtn.Visible = false end
 
@@ -435,7 +435,7 @@ function KeySystem.new(opts)
         local link = cfg.KeyLink
         if not link and cfg.KeyForge then
             gettingLink = true
-            setStatus("Obteniendo enlace...", Theme.Muted)
+            setStatus("Getting link...", Theme.Muted)
             task.spawn(function()
                 local client = getClient()
                 if client then
@@ -444,20 +444,20 @@ function KeySystem.new(opts)
                 end
                 gettingLink = false
                 if not link then
-                    setStatus("No se pudo obtener el enlace de la key", Theme.Error)
+                    setStatus("Could not get the key link", Theme.Error)
                     return
                 end
                 cfg.KeyLink = link
                 local ok = copy(link)
-                flashLabel(getLbl, ok and "Link copiado" or "Sin portapapeles", "Obtener key")
-                setStatus(ok and "Enlace copiado. Pegalo en tu navegador." or ("Abre este enlace: " .. link),
+                flashLabel(getLbl, ok and "Link copied" or "No clipboard", "Get key")
+                setStatus(ok and "Link copied. Paste it in your browser." or ("Open this link: " .. link),
                     ok and Theme.Muted or Theme.Warning)
             end)
             return
         end
         local ok = copy(link)
-        flashLabel(getLbl, ok and "Link copiado" or "Sin portapapeles", "Obtener key")
-        setStatus(ok and "Enlace copiado. Pegalo en tu navegador." or ("Abre este enlace: " .. link),
+        flashLabel(getLbl, ok and "Link copied" or "No clipboard", "Get key")
+        setStatus(ok and "Link copied. Paste it in your browser." or ("Open this link: " .. link),
             ok and Theme.Muted or Theme.Warning)
     end)
 
@@ -476,10 +476,10 @@ function KeySystem.new(opts)
             end)
         end
         local copied = cfg.DiscordLink and copy(cfg.DiscordLink)
-        flashLabel(dcLbl, (joined and "Abriendo Discord...") or (copied and "Invite copiado") or "Sin portapapeles",
-            "Unirse al Discord")
+        flashLabel(dcLbl, (joined and "Opening Discord...") or (copied and "Invite copied") or "No clipboard",
+            "Join Discord")
         if not joined then
-            setStatus(copied and "Invite copiado. Pegalo en Discord." or ("Invite: " .. tostring(cfg.DiscordLink)),
+            setStatus(copied and "Invite copied. Paste it in Discord." or ("Invite: " .. tostring(cfg.DiscordLink)),
                 Theme.Muted)
         end
     end)
@@ -572,22 +572,22 @@ function KeySystem.new(opts)
         if self.Client then return self.Client end
         local kf = cfg.KeyForge
         local okDl, src = pcall(function() return game:HttpGet(kf.sdkUrl or DEFAULT_SDK, true) end)
-        if not okDl or type(src) ~= "string" then return nil, "No se pudo descargar el SDK de KeyForge" end
+        if not okDl or type(src) ~= "string" then return nil, "Could not download the KeyForge SDK" end
         if src:find("<!DOCTYPE", 1, true) or src:find("<html", 1, true) then
-            return nil, "KeyForge devolvio HTML en vez de Lua"
+            return nil, "KeyForge returned HTML instead of Lua"
         end
         local compiler = loadstring or load
-        if type(compiler) ~= "function" then return nil, "Tu executor no soporta loadstring" end
+        if type(compiler) ~= "function" then return nil, "Your executor does not support loadstring" end
         local okC, chunk = pcall(compiler, src)
-        if not okC or type(chunk) ~= "function" then return nil, "SDK de KeyForge invalido" end
+        if not okC or type(chunk) ~= "function" then return nil, "Invalid KeyForge SDK" end
         local okI, KeyForge = pcall(chunk)
         if not okI or type(KeyForge) ~= "table" or type(KeyForge.new) ~= "function" then
-            return nil, "No se pudo iniciar KeyForge"
+            return nil, "Could not start KeyForge"
         end
         local okN, client = pcall(KeyForge.new, {
             projectId = kf.projectId, scriptId = kf.scriptId, integrationToken = kf.integrationToken,
         })
-        if not okN or type(client) ~= "table" then return nil, "Configuracion de KeyForge invalida" end
+        if not okN or type(client) ~= "table" then return nil, "Invalid KeyForge configuration" end
         self.Client = client
         return client
     end
@@ -597,27 +597,27 @@ function KeySystem.new(opts)
             local client, err = getClient()
             if not client then return false, err, true end
             local okV, res = pcall(function() return client:verify(key) end)
-            if not okV then return false, "Error al contactar con KeyForge", true end
+            if not okV then return false, "Error contacting KeyForge", true end
             if type(res) == "table" and res.ok then return true end
-            return false, (type(res) == "table" and res.message) or "Key incorrecta"
+            return false, (type(res) == "table" and res.message) or "Incorrect key"
         end
         if cfg.Validate then
             local ok, a, b = pcall(cfg.Validate, key)
-            if not ok then return false, "Error al validar la key" end
+            if not ok then return false, "Error validating the key" end
             if type(a) == "boolean" then return a, b end
             return false, nil
         end
         local list = cfg.Keys
         if cfg.KeyUrl then
             local ok, body = pcall(function() return game:HttpGet(cfg.KeyUrl) end)
-            if not ok then return false, "No se pudo conectar con el servidor de keys" end
+            if not ok then return false, "Could not connect to the key server" end
             list = {}
             for line in tostring(body):gmatch("[^\r\n]+") do
                 local k = trim(line)
                 if k ~= "" then table.insert(list, k) end
             end
         end
-        if type(list) ~= "table" then return false, "Key system sin configurar" end
+        if type(list) ~= "table" then return false, "Key system not configured" end
         return table.find(list, key) ~= nil
     end
 
@@ -648,13 +648,13 @@ function KeySystem.new(opts)
             task.spawn(function()
                 local n = 0
                 while self._busy and id == loadingId and verifyLbl.Parent do
-                    verifyLbl.Text = "Verificando" .. string.rep(".", n % 4)
+                    verifyLbl.Text = "Verifying" .. string.rep(".", n % 4)
                     n += 1
                     task.wait(0.28)
                 end
             end)
         else
-            verifyLbl.Text = "Verificar"
+            verifyLbl.Text = "Verify"
             verifyLbl.TextColor3 = Theme.OnAccent
             tween(verifyBtn, { BackgroundColor3 = Theme.Accent }, 0.2)
         end
@@ -665,15 +665,15 @@ function KeySystem.new(opts)
         task.spawn(function()
             for s = cfg.Cooldown, 1, -1 do
                 if self.Done or not gui.Parent then return end
-                setStatus("Demasiados intentos. Espera " .. s .. "s", Theme.Warning)
-                verifyLbl.Text = "Espera " .. s .. "s"
+                setStatus("Too many attempts. Wait " .. s .. "s", Theme.Warning)
+                verifyLbl.Text = "Wait " .. s .. "s"
                 task.wait(1)
             end
             self._locked = false
             self._attempts = 0
             updateAttempts()
-            verifyLbl.Text = "Verificar"
-            setStatus("Ya puedes intentarlo de nuevo", Theme.Muted)
+            verifyLbl.Text = "Verify"
+            setStatus("You can try again now", Theme.Muted)
         end)
     end
 
@@ -681,24 +681,24 @@ function KeySystem.new(opts)
         if self._busy or self._locked or self.Done then return end
         key = trim(key)
         if key == "" then
-            setStatus("Escribe tu key primero", Theme.Warning)
+            setStatus("Enter your key first", Theme.Warning)
             shake()
             return
         end
         setLoading(true)
-        setStatus(silent and "Comprobando key guardada..." or "Comprobando key...", Theme.Muted)
+        setStatus(silent and "Checking saved key..." or "Checking key...", Theme.Muted)
         task.spawn(function()
             local ok, msg, transient = check(key)
             if self.Done or not gui.Parent then return end
             setLoading(false)
             if ok then
-                self._busy = true -- bloquea mas clicks
+                self._busy = true
                 saveKey(key)
-                verifyLbl.Text = "Key valida"
+                verifyLbl.Text = "Valid key"
                 verifyLbl.TextColor3 = Color3.new(1, 1, 1)
                 tween(verifyBtn, { BackgroundColor3 = Theme.Success }, 0.2)
                 tween(inputStroke, { Color = Theme.Success, Transparency = 0 }, 0.2)
-                setStatus(msg or "Acceso concedido. Bienvenido!", Theme.Success)
+                setStatus(msg or "Access granted. Welcome!", Theme.Success)
                 task.wait(0.9)
                 outro(function()
                     finish(true, key)
@@ -716,17 +716,17 @@ function KeySystem.new(opts)
             else
                 if silent then
                     if transient then
-                        setStatus(msg or "No se pudo comprobar la key guardada", Theme.Warning)
+                        setStatus(msg or "Could not check the saved key", Theme.Warning)
                     else
                         clearSaved()
-                        setStatus("La key guardada ya no es valida", Theme.Warning)
+                        setStatus("The saved key is no longer valid", Theme.Warning)
                     end
                     return
                 end
                 self._attempts += 1
                 updateAttempts()
                 shake()
-                setStatus(msg or "Key incorrecta. Revisa e intenta de nuevo", Theme.Error)
+                setStatus(msg or "Incorrect key. Check it and try again", Theme.Error)
                 if self._attempts >= cfg.MaxAttempts then startCooldown() end
             end
         end)
@@ -758,7 +758,7 @@ function KeySystem.new(opts)
     clearBtn.Activated:Connect(function()
         clearSaved()
         keyBox.Text = ""
-        setStatus("Key guardada eliminada", Theme.Muted)
+        setStatus("Saved key deleted", Theme.Muted)
     end)
 
     closeBtn.Activated:Connect(function() self:Close() end)
