@@ -51,7 +51,7 @@ Librería de UI para Roblox escrita en Luau, más un **Key System** opcional que
 - **Recuerda la interfaz:** tamaño, posición, pestaña abierta, tema, acento, escala, tecla del menú y más se guardan entre ejecuciones.
 - **Configs:** borrar configs y **auto-cargar** una al ejecutar el script.
 - **Extras de ventana:** `CreateWatermark` (FPS/ping/hora), `CreateKeybindList`, badges en pestañas (`Tab:SetBadge`), escala de UI (`SetUIScale`), `OnUnload` para detener tus loops al descargar.
-- **Estética:** sombra, línea de acento con degradado, bordes sutiles en cada fila, pestaña activa con fondo de acento, slider con manija de aro, feedback al presionar.
+- **Estética más moderna:** el contenido vive en su propio panel (look por capas), esquinas más suaves, botones de la barra superior limpios, pestaña activa con fondo de acento e indicador que crece, cabeceras de sección con pastilla de acento, interruptores estilo iOS que se estiran al presionarlos, botones principales con brillo, slider con manija de aro, bordes sutiles en cada fila, scroll del color de acento, punto de "en línea" en el perfil, sombra y línea de acento con degradado.
 - **Fluidez:** arrastre suavizado, búsqueda con debounce y nombres en caché, creación de instancias más rápida, intro que se puede saltar y que solo aparece una vez por partida.
 - **Arreglos:** el botón rojo (`Danger`) ya no pierde el color al pasar el mouse; el menú ya no tiembla al minimizar.
 
@@ -128,13 +128,282 @@ Qué ocurre al ejecutarlo:
 
 ## Menú de prueba
 
-`CookiesDemo.lua` crea un menú con **todos** los elementos conectados a notificaciones, para probar la librería sin escribir código:
+Un menú con **todos** los elementos conectados a notificaciones, para probar la librería sin escribir nada. Copia y pega en tu executor:
 
 ```lua
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Lilwero20/CookiesLib/main/CookiesDemo.lua"))()
 ```
 
-Incluye: estadísticas en vivo, todos los botones, toggles y listas, los elementos nuevos, notificaciones, diálogos, cambio de tema y acento, y un botón para abrir el Key System de prueba (key: `COOKIES-DEMO`).
+**Qué puedes probar:**
+
+| Pestaña | Contenido |
+| --- | --- |
+| **Inicio** | Aviso de bienvenida, estadísticas en vivo (FPS, ping, jugadores, hora, clicks), párrafo, label con colores, campo para copiar e imagen |
+| **Controles** | Botones (normal, principal, con confirmación, en columnas, desactivado), toggles (simple, con tecla **F**, mantener **G**, casillas), sliders (uno cambia tu velocidad), cajas de texto, keybinds **K** y **J**, dropdowns (simple, opcional, múltiple, con buscador y de jugadores) |
+| **Avanzado** | Selector de pastillas, slider de rango, campos numéricos, barra de progreso, selector de color, alertas, divisores, sección con scroll y sección cerrada |
+| **Avisos** | Los 4 tipos de notificación, una que se actualiza sola, diálogos, marca de agua, lista de keybinds y badges |
+| **Personalizar** | Tema, color de acento, título, tamaño de la ventana y botón para abrir el **Key System** de prueba (key: `COOKIES-DEMO`) |
+| **Ajustes** | La pestaña de ajustes de la librería: tema, acento, escala, tecla del menú, configs y auto-carga |
+
+Atajos: **RightShift** oculta o muestra el menú y **Ctrl+F** abre la búsqueda.
+
+También sirve como ejemplo de código: cada elemento muestra cómo se usa. El script completo es este (es el mismo que `CookiesDemo.lua`):
+
+<details>
+<summary><b>Ver el script completo del menú de prueba</b></summary>
+
+```lua
+-- Menu de prueba de CookiesLib: todos los elementos y opciones
+-- Carga la libreria y el key system desde GitHub
+local BASE = "https://raw.githubusercontent.com/Lilwero20/CookiesLib/main/"
+local Library = loadstring(game:HttpGet(BASE .. "CookiesLib.lua"))()
+local KeySystem = loadstring(game:HttpGet(BASE .. "Cookieskeysystem.lua"))()
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- que se vea la intro aunque ya se haya mostrado en esta partida
+pcall(function() getgenv().__CookiesIntroShown = nil end)
+if getgenv().__CookiesDemo then pcall(function() getgenv().__CookiesDemo:Destroy() end) end
+
+local Window = Library:CreateWindow({
+    Title = "Cookies Hub",
+    Subtitle = "Demo  •  v" .. Library.Version,
+    ConfigFolder = "CookiesDemo",
+    Width = 760, Height = 520,
+})
+getgenv().__CookiesDemo = Window
+
+local function say(title, content, kind)
+    Window:Notify({ Title = title, Content = content, Type = kind or "Info", Duration = 3 })
+end
+
+----------------------------------------------------------------
+-- Inicio
+----------------------------------------------------------------
+Window:AddTabCategory("General")
+local home = Window:CreateTab({ Name = "Inicio", Icon = "I" })
+
+local welcome = home:CreateSection({ Name = "Bienvenido", Side = "Full" })
+welcome:AddAlert({
+    Type = "Info", Title = "Menú de prueba",
+    Content = "Prueba cada elemento. Ctrl+F abre la búsqueda, <b>RightShift</b> oculta el menú y en <b>Ajustes</b> puedes cambiar tema, color y escala.",
+})
+
+local stats = home:CreateSection({ Name = "En vivo", Side = "Left" })
+local sFps = stats:AddStat({ Name = "FPS", Value = "-" })
+local sPing = stats:AddStat({ Name = "Ping", Value = "-" })
+local sPlayers = stats:AddStat({ Name = "Jugadores", Value = #Players:GetPlayers() })
+local sTime = stats:AddStat({ Name = "Hora", Value = os.date("%H:%M:%S") })
+local sClicks = stats:AddStat({ Name = "Clicks en botones", Value = 0, Color = Library.Theme.Accent })
+
+local info = home:CreateSection({ Name = "Información", Side = "Right" })
+info:AddParagraph({ Title = "Párrafo", Content = "Texto largo que se ajusta solo. Ideal para explicar qué hace cada función del hub." })
+info:AddLabel({ Text = "Label con <b>negrita</b> y <font color='#F5C20C'>color</font>", RichText = true })
+info:AddCopyField({ Name = "Discord", Text = "discord.gg/cookieshub", Callback = function() say("Copiado", "Link copiado al portapapeles", "Success") end })
+info:AddImage({ Image = 76143769732706, Height = 90, ScaleType = Enum.ScaleType.Fit, Caption = "AddImage" })
+
+-- actualizacion de las estadisticas (se detiene al descargar la UI)
+local running = true
+Window:OnUnload(function() running = false end)
+task.spawn(function()
+    local RS = game:GetService("RunService")
+    while running do
+        local t0, frames = os.clock(), 0
+        while os.clock() - t0 < 0.5 do RS.RenderStepped:Wait() frames = frames + 1 end
+        if not running then break end
+        sFps:Set(math.floor(frames / (os.clock() - t0) + 0.5))
+        local ok, ping = pcall(function() return LocalPlayer:GetNetworkPing() end)
+        sPing:Set(ok and (math.floor(ping * 1000 + 0.5) .. " ms") or "-")
+        sPlayers:Set(#Players:GetPlayers())
+        sTime:Set(os.date("%H:%M:%S"))
+    end
+end)
+
+----------------------------------------------------------------
+-- Controles básicos
+----------------------------------------------------------------
+Window:AddTabCategory("Elementos")
+local basic = Window:CreateTab({ Name = "Controles", Icon = "C" })
+local clicks = 0
+
+local btns = basic:CreateSection("Botones")
+btns:AddButton({ Name = "Botón normal", Tooltip = "Cada click suma al contador de Inicio", Callback = function()
+    clicks = clicks + 1 sClicks:Set(clicks) say("Botón", "Click #" .. clicks)
+end })
+btns:AddButton({ Name = "Botón principal", Primary = true, Description = "Estilo Primary con descripción",
+    Callback = function() say("Primary", "Botón destacado", "Success") end })
+btns:AddButton({ Name = "Borrar todo", Style = "Danger", Confirm = true, Description = "Pide un segundo click para confirmar",
+    Callback = function() say("Danger", "Acción confirmada", "Error") end })
+local c1, c2 = btns:AddColumns(2)
+c1:AddButton({ Name = "Columna A", Callback = function() say("Columnas", "Columna A") end })
+c2:AddButton({ Name = "Columna B", Callback = function() say("Columnas", "Columna B") end })
+local disabled = btns:AddButton({ Name = "Botón desactivado" })
+disabled:SetEnabled(false)
+
+local toggles = basic:CreateSection("Toggles")
+toggles:AddToggle({ Name = "Toggle simple", Flag = "demo_toggle", Callback = function(v) say("Toggle", v and "Encendido" or "Apagado", v and "Success" or "Warning") end })
+toggles:AddToggle({ Name = "Toggle con tecla", Description = "Presiona F o cambia la tecla en el chip", Flag = "demo_toggle_key",
+    Keybind = { Default = "F", Flag = "demo_toggle_key_bind" },
+    Callback = function(v) say("Toggle con tecla", v and "Activado" or "Desactivado") end })
+toggles:AddToggle({ Name = "Mantener (Hold)", Description = "Activo solo mientras mantienes G",
+    Keybind = { Default = "G", Mode = "Hold" }, Callback = function(v) if v then say("Hold", "Mantienes G") end end })
+local cb1, cb2 = toggles:AddColumns(2)
+cb1:AddToggle({ Name = "Casilla 1", Style = "Checkbox", Default = true, Flag = "demo_cb1" })
+cb2:AddToggle({ Name = "Casilla 2", Style = "Checkbox", Flag = "demo_cb2" })
+
+local inputs = basic:CreateSection("Entradas")
+inputs:AddSlider({ Name = "Velocidad", Min = 16, Max = 200, Default = 16, Suffix = " ws", Flag = "demo_speed",
+    Tooltip = "Escribe en la caja o arrastra",
+    Callback = function(v) local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") if h then h.WalkSpeed = v end end })
+inputs:AddSlider({ Name = "Decimales", Min = 0, Max = 1, Increment = 0.05, Default = 0.5, Flag = "demo_dec" })
+inputs:AddTextBox({ Name = "Texto", Placeholder = "escribe algo...", Flag = "demo_text",
+    Callback = function(t) if t ~= "" then say("TextBox", t) end end })
+inputs:AddTextBox({ Name = "Solo números", Numeric = true, Default = 10, Flag = "demo_numeric" })
+inputs:AddKeybind({ Name = "Tecla de acción", Default = "K", Flag = "demo_bind",
+    Callback = function() say("Keybind", "Presionaste la tecla de acción") end })
+inputs:AddKeybind({ Name = "Tecla tipo toggle", Default = "J", Mode = "Toggle",
+    Callback = function(active) say("Keybind Toggle", active and "Activo" or "Inactivo") end })
+
+local lists = basic:CreateSection("Listas")
+lists:AddDropdown({ Name = "Arma", Options = { "Espada", "Arco", "Lanza", "Hacha" }, Default = "Espada", Flag = "demo_weapon",
+    Callback = function(v) say("Dropdown", tostring(v)) end })
+lists:AddDropdown({ Name = "Opcional", Options = { "Uno", "Dos", "Tres" }, AllowNull = true, Placeholder = "Ninguno",
+    Tooltip = "Click en la opción elegida para quitarla" })
+lists:AddDropdown({ Name = "Mascotas", Multi = true, Options = { "Perro", "Gato", "Dragón", "Pez", "Búho" },
+    Default = { "Gato" }, Flag = "demo_pets" })
+local many = {}
+for i = 1, 30 do many[i] = "Huevo " .. i end
+lists:AddDropdown({ Name = "Con buscador", Options = many, Flag = "demo_eggs", Tooltip = "Con 7+ opciones aparece el buscador" })
+lists:AddPlayerDropdown({ Name = "Jugador", IncludeSelf = true, Callback = function(v) if v then say("Jugador", v) end end })
+
+----------------------------------------------------------------
+-- Avanzado
+----------------------------------------------------------------
+local adv = Window:CreateTab({ Name = "Avanzado", Icon = "A", Badge = "NEW" })
+
+local newEl = adv:CreateSection("Elementos nuevos")
+newEl:AddSegmented({ Name = "Modo", Options = { "Seguro", "Normal", "Rápido" }, Default = "Normal", Flag = "demo_mode",
+    Callback = function(v) say("Segmented", v) end })
+newEl:AddRangeSlider({ Name = "Rango de nivel", Min = 1, Max = 100, Default = { 10, 60 }, Flag = "demo_range",
+    Callback = function(v) end })
+newEl:AddNumber({ Name = "Cantidad", Min = 0, Max = 99, Default = 5, Flag = "demo_amount", Tooltip = "Mantén presionado + o - para repetir" })
+newEl:AddNumber({ Name = "Multiplicador", Min = 0.5, Max = 5, Increment = 0.5, Default = 1, Suffix = "x" })
+local prog = newEl:AddProgress({ Name = "Progreso", Default = 35 })
+newEl:AddButton({ Name = "Avanzar progreso", Callback = function()
+    prog:Set((prog.Value + 15) % 115)
+end })
+
+local colors = adv:CreateSection("Colores")
+colors:AddColorPicker({ Name = "Color de ESP", Default = Color3.fromRGB(245, 194, 12), Flag = "demo_color",
+    Presets = { Color3.fromRGB(255, 80, 80), Color3.fromRGB(80, 200, 120), Color3.fromRGB(90, 140, 255), Color3.fromRGB(255, 255, 255) } })
+
+local alerts = adv:CreateSection("Avisos")
+alerts:AddAlert({ Type = "Success", Title = "Todo listo", Content = "Alerta de éxito" })
+alerts:AddAlert({ Type = "Warning", Title = "Cuidado", Content = "Alerta de advertencia" })
+alerts:AddAlert({ Type = "Error", Title = "Error", Content = "Alerta de error" })
+alerts:AddDivider("Divisor con texto")
+alerts:AddDivider()
+alerts:AddSpacer(4)
+alerts:AddLabel("Label normal")
+
+local layout = adv:CreateSection({ Name = "Sección con scroll", MaxHeight = 120 })
+for i = 1, 10 do layout:AddToggle({ Name = "Opción " .. i, Style = "Checkbox" }) end
+local col = adv:CreateSection({ Name = "Sección cerrada", Minimized = true })
+col:AddLabel("Esta sección empieza cerrada: click en el título para abrirla.")
+
+----------------------------------------------------------------
+-- Avisos y diálogos
+----------------------------------------------------------------
+local fx = Window:CreateTab({ Name = "Avisos", Icon = "N" })
+local nt = fx:CreateSection("Notificaciones")
+for _, k in ipairs({ "Info", "Success", "Warning", "Error" }) do
+    nt:AddButton({ Name = "Notificación " .. k, Callback = function()
+        Window:Notify({ Title = k, Content = "Pasa el mouse encima para pausarla. Click para cerrarla.", Type = k, Duration = 5 })
+    end })
+end
+nt:AddButton({ Name = "Notificación que se actualiza", Callback = function()
+    local n = Window:Notify({ Title = "Descargando...", Content = "0%", Duration = 6 })
+    task.spawn(function()
+        for i = 1, 5 do task.wait(0.8) n:SetContent((i * 20) .. "%") end
+        n:SetTitle("Listo")
+    end)
+end })
+
+local dl = fx:CreateSection("Diálogos")
+dl:AddButton({ Name = "Diálogo simple", Callback = function()
+    Window:Dialog({ Title = "¿Continuar?", Content = "Ejemplo de confirmación.", Callback = function() say("Diálogo", "Confirmado", "Success") end })
+end })
+dl:AddButton({ Name = "Diálogo con 3 botones", Callback = function()
+    Window:Dialog({
+        Title = "Elige una opción", Content = "Los diálogos aceptan cualquier cantidad de botones.",
+        Buttons = {
+            { Name = "Cancelar" },
+            { Name = "Borrar", Style = "Danger", Callback = function() say("Diálogo", "Borrar", "Error") end },
+            { Name = "Guardar", Style = "Primary", Callback = function() say("Diálogo", "Guardar", "Success") end },
+        },
+    })
+end })
+
+local extras = fx:CreateSection("Extras")
+extras:AddToggle({ Name = "Marca de agua (FPS)", Callback = function(v)
+    if v then Window:CreateWatermark({ ShowTime = true }) elseif Window._watermark then Window._watermark:Destroy() Window._watermark = nil end
+end })
+extras:AddToggle({ Name = "Lista de keybinds", Callback = function(v)
+    if v then Window:CreateKeybindList() elseif Window._kbList then Window._kbList:Destroy() Window._kbList = nil end
+end })
+extras:AddButton({ Name = "Badge en esta pestaña", Callback = function() fx:SetBadge(math.random(1, 9)) end })
+extras:AddButton({ Name = "Quitar badge", Callback = function() fx:SetBadge(nil) end })
+
+----------------------------------------------------------------
+-- Personalizar
+----------------------------------------------------------------
+Window:AddTabCategory("Personalizar")
+local cust = Window:CreateTab({ Name = "Personalizar", Icon = "P" })
+
+local themes = cust:CreateSection("Temas rápidos")
+themes:AddDropdown({ Name = "Tema", Options = Library:GetThemes(), Default = Library.CurrentTheme,
+    Callback = function(v) if v then Library:SetTheme(v) end end })
+themes:AddSegmented({ Name = "Acento rápido", Options = { "Dorado", "Rosa", "Azul", "Verde" },
+    Callback = function(v)
+        local c = ({ Dorado = Color3.fromRGB(245, 194, 12), Rosa = Color3.fromRGB(255, 105, 140),
+            Azul = Color3.fromRGB(98, 146, 255), Verde = Color3.fromRGB(120, 214, 140) })[v]
+        Library:SetAccent(c)
+    end })
+themes:AddLabel({ Text = "El tema y el color que elijas en Ajustes se guardan para la próxima vez." })
+
+local win = cust:CreateSection("Ventana")
+win:AddTextBox({ Name = "Título", Default = "Cookies Hub", Callback = function(t) Window:SetTitle(t) end })
+win:AddTextBox({ Name = "Subtítulo", Default = "Demo", Callback = function(t) Window:SetSubtitle(t) end })
+win:AddNumber({ Name = "Ancho", Min = 480, Max = 1200, Increment = 20, Default = 760, Callback = function(v) Window:Resize(v, nil) end })
+win:AddNumber({ Name = "Alto", Min = 320, Max = 900, Increment = 20, Default = 520, Callback = function(v) Window:Resize(nil, v) end })
+win:AddButton({ Name = "Minimizar / restaurar", Callback = function() Window:Minimize() end })
+win:AddButton({ Name = "Abrir búsqueda", Callback = function() Window:OpenSearch("toggle") end })
+
+local ks = cust:CreateSection("Key System")
+ks:AddParagraph({ Title = "Probar el key system", Content = "La key de prueba es COOKIES-DEMO (no distingue mayúsculas). Con 3 errores se activa una espera de 10 s." })
+ks:AddCopyField({ Name = "Key", Text = "COOKIES-DEMO" })
+ks:AddButton({ Name = "Abrir key system", Primary = true, Callback = function()
+    Window:Hide()
+    local k = KeySystem.new({
+        Library = Library, Title = "Cookies Hub", Subtitle = "Key System • demo",
+        Keys = { "COOKIES-DEMO" }, CaseSensitive = false, MaxAttempts = 3, Cooldown = 10,
+        KeyLink = "https://example.com/get-key", DiscordLink = "https://discord.gg/cookieshub",
+        Folder = "CookiesDemo", FileName = "demo_key.txt", SaveKey = false,
+    })
+    task.spawn(function()
+        local ok = k:Wait()
+        Window:Show()
+        say("Key System", ok and "Key válida" or "Cerrado sin key", ok and "Success" or "Warning")
+    end)
+end })
+
+Window:CreateSettingsTab("Ajustes", "S")
+
+say("Cookies Hub " .. Library.Version, "Menú de prueba cargado. ¡Pruébalo todo!", "Success")
+```
+
+</details>
 
 ---
 
@@ -191,7 +460,7 @@ Las opciones que no son `Theme`, `Config` ni una sub-configuración (`Tab`, `Sec
 | `AccentLine` | `true` | Línea de acento con degradado bajo la barra superior |
 | `RememberLayout` | `true` | Recuerda la interfaz entre ejecuciones (ver [Estado guardado](#estado-guardado-de-la-interfaz)) |
 | `DisplayOrder` | `50` | `DisplayOrder` del `ScreenGui` |
-| `Corner` | `10` | Radio de las esquinas de la ventana |
+| `Corner` | `12` | Radio de las esquinas de la ventana |
 | `ConfigFolder` | `"CookiesHub"` | Carpeta de configs y del estado guardado |
 
 ### Intro
@@ -1055,8 +1324,8 @@ Library:Configure({
     Window  = { Width = 740, Height = 500, Shadow = true, AccentLine = true, SmoothDrag = true,
                 RememberLayout = true, UIScale = 1, SearchShortcut = true },
     Tab     = { Columns = 2, Padding = 12, Gap = 10, IconSize = 20, IconTint = true, SingleColumnBelow = 440 },
-    Section = { Collapsible = true, Minimized = false, Columns = 1, MaxHeight = nil, Gap = 6, ColumnGap = 8, Corner = 8 },
-    Element = { Height = 32, Corner = 6 },
+    Section = { Collapsible = true, Minimized = false, Columns = 1, MaxHeight = nil, Gap = 6, ColumnGap = 8, Corner = 10 },
+    Element = { Height = 32, Corner = 7 },
     Notify  = { Duration = 4, Width = 290, Position = "BottomRight", Max = 5, PauseOnHover = true },
     Tooltip = { Enabled = true, Delay = 0.55, MaxWidth = 250 },
     Dropdown = { SearchThreshold = 7, MaxVisible = 5 },
