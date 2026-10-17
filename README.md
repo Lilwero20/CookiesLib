@@ -1518,7 +1518,31 @@ KeySystem.new({
 })
 ```
 
-Con KeyForge, el botón **Get key** obtiene el enlace desde el servicio (`getKeyUrl`) y lo copia al portapapeles. Con `LoadScript = true`, tras validar se llama a `loadScript()` del cliente; los errores se muestran con `warn("[CookiesKey] ...")`.
+Los IDs y el token firmado (`integrationToken`) los da el dashboard de KeyForge: edita un script con key, abre **In-game UI** y elige **Custom Lua GUI**. Guía oficial: <https://www.keyforge.win/en/docs/custom-lua-gui>
+
+El Key System usa las tres llamadas del SDK de KeyForge:
+
+| Botón / momento | Llamada | Qué hace la ventana |
+| --- | --- | --- |
+| **Get key** | `client:getKeyUrl()` | Copia el enlace. Si no hay página de keys enlazada, muestra el `message` de KeyForge |
+| **Verify** | `client:verify(key)` | Si `ok`, la key es válida; si no, muestra el `message` de KeyForge |
+| Justo después de validar (`LoadScript = true`) | `client:loadScript()` | Muestra *"Loading securely..."*. Si falla, la ventana **no se cierra** y muestra el motivo; el jugador puede volver a pulsar **Verify** (el token de acceso es de un solo uso) |
+
+Códigos de resultado y cómo los trata la ventana:
+
+| Código | Significado | ¿Gasta un intento? |
+| --- | --- | --- |
+| `KEY_INVALID` | La key no existe o el campo está vacío | Sí |
+| `KEY_EXPIRED` | La key caducó | Sí (y se borra la key guardada) |
+| `KEY_REVOKED` | La key fue revocada | Sí (y se borra la key guardada) |
+| `KEY_SCRIPT_MISMATCH` | La key es de otro script | Sí |
+| `HWID_MISMATCH` | La key está ligada a otro dispositivo | Sí |
+| `RATE_LIMITED` | Demasiados intentos en KeyForge | No |
+| `SESSION_EXPIRED` | La verificación caducó | No |
+| `NETWORK_ERROR` | El executor no pudo conectar con KeyForge | No |
+| `PROJECT_DISABLED` | Proyecto desactivado o entrega pausada | No |
+
+> KeyForge se encarga del estado de las keys, los límites, el HWID y la entrega del script. No pongas secretos, código fuente ni reglas de validación en tu GUI: un script volcado se puede leer.
 
 ---
 
