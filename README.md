@@ -1442,7 +1442,9 @@ Los espacios al inicio y al final de la key se ignoran. Con `CaseSensitive = fal
 | `LoadScript` | `nil` | Con KeyForge: ejecuta el script protegido tras validar |
 | `SaveKey` | `true` | Permite recordar la key en disco |
 | `AutoVerify` | `true` | Verifica automáticamente la key guardada al abrir |
-| `Folder` / `FileName` | `"CookiesHub"` / `"key.txt"` | Dónde se guarda la key |
+| `Id` | automático | Identifica a este key system: separa la key guardada y el bloqueo por intentos de cada script (ver [Varios scripts con key system](#varios-scripts-con-key-system)) |
+| `Folder` | `"CookiesHub"` | Carpeta donde se guarda la key |
+| `FileName` | `nil` | Archivo fijo para la key. Sin él, se usa `Folder/keys/<Id>.txt` (uno por script) |
 | `MaxAttempts` | `5` | Intentos fallidos antes del bloqueo temporal |
 | `Cooldown` | `15` | Segundos de bloqueo |
 | `Blur` | `true` | Desenfoque de fondo |
@@ -1479,7 +1481,7 @@ ks:Close()                    -- cierra sin validar (success = false)
 ks:Destroy()                  -- cierra y limpia todo
 ```
 
-Campos: `ks.Done`, `ks.Success`, `ks.Key`, `ks.Gui`, `ks.Theme`, `ks.Client` (cliente de KeyForge, si se usó).
+Campos: `ks.Done`, `ks.Success`, `ks.Key`, `ks.Id`, `ks.Gui`, `ks.Theme`, `ks.Client` (cliente de KeyForge, si se usó).
 
 También puedes usar callbacks en vez de `Wait()`:
 
@@ -1494,11 +1496,37 @@ KeySystem.new({
 
 ### Comportamiento de la interfaz
 
-- **Key recordada:** si el executor soporta archivos, aparece la casilla *Remember key* y el botón *Delete saved key*. Al abrir, la key guardada se rellena y, con `AutoVerify`, se verifica sola. Si deja de ser válida se borra; si falla por un error de conexión se conserva.
+- **Key recordada:** si el executor soporta archivos, aparece la casilla *Remember key* (marcada por defecto) y el botón *Delete saved key*. Al validar una key correcta se guarda; al abrir de nuevo se rellena y, con `AutoVerify`, se verifica sola. Si deja de ser válida se borra; si falla por un error de conexión o por límite de intentos se conserva.
 - **Intentos:** se muestra cuántos quedan (en naranja cuando queda uno). Al agotar `MaxAttempts` el botón se bloquea `Cooldown` segundos. El bloqueo **sigue activo** aunque se vuelva a ejecutar el script en la misma partida.
 - **Errores de conexión** (KeyUrl caído, KeyForge sin respuesta, error en `Validate`) no cuentan como intento fallido.
 - **Botones condicionales:** *Get key* solo aparece con `KeyLink` o `KeyForge`; *Join Discord* con `DiscordLink` o `DiscordCode`; *Paste* solo si el executor tiene portapapeles.
 - La ventana se puede arrastrar desde su parte superior y se escala en pantallas pequeñas.
+
+### Varios scripts con key system
+
+Cada key system tiene su propio **`Id`**, así que varios scripts pueden usar el Key System a la vez sin pisarse:
+
+- Cada uno guarda su key en su propio archivo: `Folder/keys/<Id>.txt`. Validar la key de un script nunca borra ni reemplaza la de otro.
+- El bloqueo por intentos fallidos también es por script: equivocarse en uno no bloquea los demás.
+
+El `Id` se calcula solo, en este orden:
+
+| Si usas | `Id` automático |
+| --- | --- |
+| `Id = "mi-hub"` | `mi-hub` |
+| `KeyForge` | `kf_<scriptId>` (cada script de KeyForge ya es único) |
+| `KeyUrl` | `url_<hash de la URL>` |
+| `Keys` | `keys_<hash de la lista>` |
+| Nada de lo anterior (solo `Validate`) | El `Title` |
+
+Si dos scripts tuyos usan `Validate` con el mismo `Title`, ponles un `Id` distinto a cada uno:
+
+```lua
+KeySystem.new({ Id = "blox-fruits", Title = "Cookies Hub", Validate = miValidacion })
+KeySystem.new({ Id = "rivals",      Title = "Cookies Hub", Validate = miValidacion })
+```
+
+> **Actualizar desde la versión anterior:** antes todos los scripts compartían `Folder/key.txt`. Si existe, se usa solo como respaldo: si la key es válida para el script, se copia a su archivo propio; si no, se ignora y **no se borra** (puede ser la key de otro script). Tus usuarios no pierden sus keys guardadas.
 
 ### KeyForge
 
