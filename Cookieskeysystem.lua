@@ -103,6 +103,30 @@ local function copy(text)
     return false
 end
 
+-- hash corto y estable (djb2) para derivar un id a partir de una URL o una lista de keys
+local function shortHash(s)
+    local h = 5381
+    for i = 1, #s do h = (h * 33 + string.byte(s, i)) % 4294967296 end
+    return string.format("%08x", h)
+end
+
+-- Id de cada key system: separa la key guardada y el bloqueo por intentos de cada script,
+-- para que varios scripts con key system no se pisen entre si
+local function scriptId(opts)
+    local id = opts.Id
+    if id == nil and type(opts.KeyForge) == "table" and opts.KeyForge.scriptId then id = "kf_" .. tostring(opts.KeyForge.scriptId) end
+    if id == nil and type(opts.KeyUrl) == "string" then id = "url_" .. shortHash(opts.KeyUrl) end
+    if id == nil and type(opts.Keys) == "table" then
+        local list = {}
+        for _, k in ipairs(opts.Keys) do table.insert(list, tostring(k)) end
+        table.sort(list)
+        id = "keys_" .. shortHash(table.concat(list, "\n"))
+    end
+    if id == nil then id = tostring(opts.Title or "default") end
+    id = tostring(id):gsub("[^%w%-_]", "_"):sub(1, 48)
+    return id
+end
+
 -- Arma la paleta: tema de la libreria (si se pasa) + overrides de Theme / Accent
 local function buildTheme(opts)
     local Lib = opts.Library
@@ -151,7 +175,8 @@ function KeySystem.new(opts)
         AutoVerify    = opts.AutoVerify ~= false,
         CaseSensitive = opts.CaseSensitive ~= false,
         Folder        = opts.Folder or "CookiesHub",
-        FileName      = opts.FileName or "key.txt",
+        Id            = scriptId(opts),
+        FileName      = opts.FileName,
         MaxAttempts   = opts.MaxAttempts or 5,
         Cooldown      = opts.Cooldown or 15,
         Blur          = opts.Blur ~= false,
@@ -173,11 +198,17 @@ function KeySystem.new(opts)
     end
 
     local getClient
-    local keyPath = cfg.Folder .. "/" .. cfg.FileName
+    -- cada script tiene su archivo (keys/<Id>.txt). Si FileName se da a mano, se respeta.
+    local keyPath = opts.FileName and (cfg.Folder .. "/" .. opts.FileName)
+        or (cfg.Folder .. "/keys/" .. cfg.Id .. ".txt")
+    -- archivo comun de la version 2.0 (lo compartian todos los scripts): solo se lee para migrar
+    local legacyPath = (not opts.FileName) and (cfg.Folder .. "/key.txt") or nil
+    local savedFromLegacy = false
 
     local self = setmetatable({}, KeySystem)
     self.Done, self.Success, self.Key = false, false, nil
     self.Theme = Theme
+    self.Id = cfg.Id -- separa key guardada y bloqueo de cada script
     self._event = Instance.new("BindableEvent")
     self._attempts = 0
     self._busy = false
@@ -736,19 +767,34 @@ function KeySystem.new(opts)
         if not (remember and hasFS) then return end
         pcall(function()
             if not isfolder(cfg.Folder) then makefolder(cfg.Folder) end
+            local dir = keyPath:match("^(.*)/[^/]+$")
+            if dir and not isfolder(dir) then makefolder(dir) end
             writefile(keyPath, key)
         end)
+        savedFromLegacy = false
     end
-    local function loadSaved()
-        if not hasFS then return nil end
+    local function readKey(path)
         local ok, data = pcall(function()
-            if isfile(keyPath) then return readfile(keyPath) end
+            if isfile(path) then return readfile(path) end
         end)
         if ok and data and trim(data) ~= "" then return trim(data) end
         return nil
     end
+    local function loadSaved()
+        if not hasFS then return nil end
+        local key = readKey(keyPath)
+        if key then return key end
+        -- migracion: la key del archivo comun antiguo se prueba, pero no se borra si no sirve
+        -- (puede ser de otro script); si es valida se copia al archivo propio de este script
+        if legacyPath then
+            key = readKey(legacyPath)
+            if key then savedFromLegacy = true end
+        end
+        return key
+    end
+    -- solo borra el archivo de ESTE script; nunca toca la key de otro
     local function clearSaved()
-        if not hasFS then return end
+        if not hasFS or savedFromLegacy then savedFromLegacy = false return end
         pcall(function()
             if typeof(delfile) == "function" and isfile(keyPath) then delfile(keyPath)
             elseif isfile(keyPath) then writefile(keyPath, "") end
@@ -883,9 +929,11 @@ function KeySystem.new(opts)
 
     -- el cooldown sobrevive a re-ejecutar el script en la misma partida
     local G = genv()
+    G.__CookiesKeyLocks = type(G.__CookiesKeyLocks) == "table" and G.__CookiesKeyLocks or {}
+    local locks = G.__CookiesKeyLocks
     local function startCooldown(seconds)
         self._locked = true
-        G.__CookiesKeyLock = os.clock() + seconds
+        locks[cfg.Id] = os.clock() + seconds
         task.spawn(function()
             local endAt = os.clock() + seconds
             while os.clock() < endAt do
@@ -899,7 +947,7 @@ function KeySystem.new(opts)
             end
             self._locked = false
             self._attempts = 0
-            G.__CookiesKeyLock = nil
+            locks[cfg.Id] = nil
             updateAttempts()
             verifyLbl.Text = "Verify"
             verifyLbl.TextColor3 = Theme.OnAccent
@@ -968,8 +1016,10 @@ function KeySystem.new(opts)
                     if transient then
                         setStatus(msg or "Could not check the saved key", Theme.Warning)
                     else
+                        local legacy = savedFromLegacy
                         clearSaved()
-                        setStatus("The saved key is no longer valid", Theme.Warning)
+                        keyBox.Text = ""
+                        setStatus(legacy and "Enter your key for this script" or "The saved key is no longer valid", Theme.Warning)
                     end
                     return
                 end
@@ -1067,7 +1117,7 @@ function KeySystem.new(opts)
         end
     end)
 
-    local lockLeft = (G.__CookiesKeyLock or 0) - os.clock()
+    local lockLeft = (locks[cfg.Id] or 0) - os.clock()
     if lockLeft > 0.5 then
         self._attempts = cfg.MaxAttempts
         startCooldown(lockLeft)
