@@ -242,7 +242,7 @@ function KeySystem.new(opts)
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Background,
         GroupTransparency = 1, Parent = holder,
     }, {
-        create("UICorner", { CornerRadius = UDim.new(0, 12) }),
+        create("UICorner", { CornerRadius = UDim.new(0, 14) }),
         create("UIStroke", { Color = Theme.Stroke, Thickness = 1, Transparency = 0.1,
             ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
         create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), rgb(200, 200, 200)) }),
@@ -346,7 +346,7 @@ function KeySystem.new(opts)
     local inputRow = create("Frame", {
         Position = UDim2.fromOffset(24, INPUT_Y), Size = UDim2.new(1, -48, 0, 40),
         BackgroundColor3 = Theme.Input, Parent = left,
-    }, { corner(8) })
+    }, { corner(10) })
     local inputStroke = stroke(Theme.Stroke, 1, 0.1)
     inputStroke.Parent = inputRow
 
@@ -380,7 +380,9 @@ function KeySystem.new(opts)
     local verifyBtn = create("TextButton", {
         Text = "", Position = UDim2.fromOffset(24, INPUT_Y + 50), Size = UDim2.new(1, -48, 0, 40),
         BackgroundColor3 = Theme.Accent, ClipsDescendants = true, Parent = left,
-    }, { corner(8) })
+    }, { corner(10), create("UIGradient", {
+        Rotation = 90, Color = ColorSequence.new(rgb(255, 255, 255), rgb(220, 220, 220)),
+    }) })
     local verifyScale = create("UIScale", { Scale = 1, Parent = verifyBtn })
     local verifyLbl = label({
         Text = "Verify", Font = Fonts.Bold, TextSize = 14, TextColor3 = Theme.OnAccent,
@@ -509,7 +511,7 @@ function KeySystem.new(opts)
     local panel = create("Frame", {
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 52),
         Size = UDim2.new(0, PANEL_W, 1, -64), BackgroundColor3 = Theme.Panel, Parent = root,
-    }, { corner(10), stroke(Theme.Stroke, 1, 0.45) })
+    }, { corner(12), stroke(Theme.Stroke, 1, 0.45) })
 
     label({
         Text = "Need a key?", Font = Fonts.Bold, TextSize = 13,
@@ -547,7 +549,7 @@ function KeySystem.new(opts)
         local b = create("TextButton", {
             Text = "", Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 36),
             BackgroundColor3 = normal, Parent = panel,
-        }, { corner(8), stroke(primary and Theme.Accent or Theme.Stroke, 1, primary and 0.55 or 0.5) })
+        }, { corner(9), stroke(primary and Theme.Accent or Theme.Stroke, 1, primary and 0.55 or 0.5) })
         local l = label({
             Text = text, Font = Fonts.Bold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center,
             TextColor3 = primary and Theme.Accent or Theme.Text, Size = UDim2.fromScale(1, 1), Parent = b,
@@ -653,8 +655,9 @@ function KeySystem.new(opts)
 
     local closeBtn = create("TextButton", {
         Text = "", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14),
-        Size = UDim2.fromOffset(26, 26), BackgroundColor3 = Theme.Row, ZIndex = 6, Parent = root,
-    }, { corner(6) })
+        Size = UDim2.fromOffset(28, 28), BackgroundColor3 = Theme.Row, BackgroundTransparency = 1,
+        ZIndex = 6, Parent = root,
+    }, { corner(8) })
     local xBars = {}
     for _, rot in ipairs({ 45, -45 }) do
         table.insert(xBars, create("Frame", {
@@ -664,11 +667,11 @@ function KeySystem.new(opts)
         }, { corner(1) }))
     end
     closeBtn.MouseEnter:Connect(function()
-        tween(closeBtn, { BackgroundColor3 = rgb(110, 40, 36) }, 0.15)
+        tween(closeBtn, { BackgroundColor3 = rgb(110, 40, 36), BackgroundTransparency = 0 }, 0.15)
         for _, b in ipairs(xBars) do tween(b, { BackgroundColor3 = Theme.Text }, 0.15) end
     end)
     closeBtn.MouseLeave:Connect(function()
-        tween(closeBtn, { BackgroundColor3 = Theme.Row }, 0.15)
+        tween(closeBtn, { BackgroundTransparency = 1 }, 0.15)
         for _, b in ipairs(xBars) do tween(b, { BackgroundColor3 = Theme.Muted }, 0.15) end
     end)
 
