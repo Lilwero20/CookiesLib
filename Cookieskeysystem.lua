@@ -611,17 +611,24 @@ function KeySystem.new(opts)
         getLbl.Text = "Loading..."
         setStatus("Getting your key link...", Theme.Muted)
         task.spawn(function()
-            local link
-            local client = getClient()
+            local link, why
+            local client, err = getClient()
             if client then
-                local okK, url = pcall(function() return (client:getKeyUrl()) end)
-                if okK and type(url) == "string" and url ~= "" then link = url end
+                -- KeyForge: getKeyUrl() -> url, response (response.message explica por que no hay link)
+                local okK, url, response = pcall(function() return client:getKeyUrl() end)
+                if okK and type(url) == "string" and url ~= "" then
+                    link = url
+                elseif okK and type(response) == "table" and response.message then
+                    why = tostring(response.message)
+                end
+            else
+                why = err
             end
             gettingLink = false
             if not gui.Parent then return end
             if not link then
                 getLbl.Text = "Get key"
-                setStatus("Could not get the key link", Theme.Error)
+                setStatus(why or "Could not get the key link", Theme.Error)
                 return
             end
             cfg.KeyLink = link
@@ -790,14 +797,20 @@ function KeySystem.new(opts)
     local urlCache, urlCacheAt = nil, 0
     local function norm(k) return cfg.CaseSensitive and k or string.lower(k) end
 
+    -- codigos de KeyForge que no son culpa del jugador: no gastan intentos ni borran la key guardada
+    local KF_TRANSIENT = {
+        NETWORK_ERROR = true, RATE_LIMITED = true, SESSION_EXPIRED = true, PROJECT_DISABLED = true,
+    }
+
     local function check(key)
         if cfg.KeyForge then
             local client, err = getClient()
             if not client then return false, err, true end
             local okV, res = pcall(function() return client:verify(key) end)
             if not okV then return false, "Error contacting KeyForge", true end
-            if type(res) == "table" and res.ok then return true end
-            return false, (type(res) == "table" and res.message) or "Incorrect key"
+            if type(res) ~= "table" then return false, "Unexpected KeyForge response", true end
+            if res.ok then return true end
+            return false, res.message or "Incorrect key", KF_TRANSIENT[res.code] == true
         end
         if cfg.Validate then
             local ok, a, b = pcall(cfg.Validate, key)
@@ -910,6 +923,29 @@ function KeySystem.new(opts)
             local ok, msg, transient = check(key)
             if self.Done or not gui.Parent then return end
             setLoading(false)
+            if ok and cfg.LoadScript and self.Client then
+                setLoading(true, "Loading...")
+                setStatus("Loading securely...", Theme.Muted)
+                local result, finished = nil, false
+                task.spawn(function()
+                    local okL, loaded = pcall(function() return self.Client:loadScript() end)
+                    if not okL then loaded = { ok = false, message = tostring(loaded) } end
+                    result, finished = loaded, true
+                    if self.Done and type(loaded) == "table" and loaded.ok == false then
+                        warn("[CookiesKey]", loaded.code, loaded.message)
+                    end
+                end)
+                -- si el script entregado sigue corriendo tras unos segundos, se da por cargado
+                local t0 = os.clock()
+                while not finished and os.clock() - t0 < 4 do task.wait() end
+                if self.Done or not gui.Parent then return end
+                setLoading(false)
+                if finished and type(result) == "table" and result.ok == false then
+                    -- el token ya se gasto: el jugador puede pulsar Verify de nuevo
+                    setStatus(result.message or "Could not load the script", Theme.Error)
+                    return
+                end
+            end
             if ok then
                 self._busy = true
                 saveKey(key)
@@ -921,18 +957,9 @@ function KeySystem.new(opts)
                 tween(verifyBtn, { BackgroundColor3 = Theme.Success }, 0.2)
                 tween(inputStroke, { Color = Theme.Success, Transparency = 0 }, 0.2)
                 setStatus(msg or "Access granted. Welcome!", Theme.Success)
-                task.wait(0.9)
+                task.wait(0.8)
                 outro(function()
                     finish(true, key)
-                    if cfg.LoadScript and self.Client then
-                        task.spawn(function()
-                            local okL, loaded = pcall(function() return self.Client:loadScript() end)
-                            if not okL then warn("[CookiesKey] loadScript:", loaded)
-                            elseif type(loaded) == "table" and not loaded.ok then
-                                warn("[CookiesKey]", loaded.code, loaded.message)
-                            end
-                        end)
-                    end
                     if cfg.OnSuccess then task.spawn(cfg.OnSuccess, key) end
                 end)
             else
