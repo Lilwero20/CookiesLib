@@ -116,8 +116,7 @@ Library.Config = {
         RememberLayout = true,     -- recuerda tamano, posicion, tab, tema y ajustes entre ejecuciones
         UIScale = 1,               -- escala extra elegida por el usuario (0.6 - 1.4)
         SearchShortcut = true,     -- Ctrl+F abre la busqueda global
-        Style = "Default",         -- "Default" | "Glass" (translucido, desenfoque y bordes de luz)
-        Blur = true,               -- con Style = "Glass": desenfoca lo que hay detras de la ventana
+        Style = "Default",         -- "Default" | "Glass" (vidrio translucido con bordes de luz)
     },
     Tab = { Columns = 2, Padding = 12, Gap = 10, IconSize = 20, IconTint = true, SingleColumnBelow = 440 },
     Section = {
@@ -401,21 +400,29 @@ end
 -- reduce a escala (pressed) y rebota al soltar: feedback tactil para botones
 local function pressFx(btn, target, amount)
     local sc = create("UIScale", { Parent = target or btn })
-    btn.MouseButton1Down:Connect(function() tween(sc, { Scale = amount or 0.97 }, 0.08) end)
-    local function up() tween(sc, { Scale = 1 }, 0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out) end
+    -- con alguna ventana en estilo Glass la presion es "liquida": se hunde mas y rebota elastica
+    btn.MouseButton1Down:Connect(function()
+        local a = amount or 0.97
+        if Library.Glass and Library.Glass.Liquid then a = 1 - (1 - a) * 1.8 end
+        tween(sc, { Scale = a }, 0.08)
+    end)
+    local function up()
+        if Library.Glass and Library.Glass.Liquid then
+            tween(sc, { Scale = 1 }, 0.6, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
+        else
+            tween(sc, { Scale = 1 }, 0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        end
+    end
     btn.MouseButton1Up:Connect(up)
     btn.MouseLeave:Connect(up)
     return sc
 end
 
 ----------------------------------------------------------------
--- Cristal (Style = "Glass"): desenfoque real detras de la ventana, superficies translucidas,
--- bordes especulares que giran siguiendo al mouse y reflejo en la parte superior.
--- El desenfoque es una lamina de Glass pegada a la camara + un DepthOfField cercano: todo lo que
--- queda detras del panel se ve borroso. Necesita graficos altos; si no, queda solo la translucidez.
+-- Cristal (Style = "Glass"): vidrio oscuro translucido, velos blancos encima, bordes de luz que
+-- giran siguiendo al mouse, reflejo en la parte superior y presion "liquida" en los botones.
 ----------------------------------------------------------------
 local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
 
 local function nseq(points)
     local kps = {}
@@ -423,104 +430,61 @@ local function nseq(points)
     return NumberSequence.new(kps)
 end
 
-local GlassFX = { Enabled = true, _blurs = {}, _rims = setmetatable({}, { __mode = "k" }) }
+local GlassFX = { _rims = setmetatable({}, { __mode = "k" }), Liquid = false }
 Library.Glass = GlassFX
+-- la version 3.6.0 usaba un desenfoque (DepthOfField): se limpia si quedo de una ejecucion anterior
+pcall(function()
+    local old = game:GetService("Lighting"):FindFirstChild("CookiesGlassBlur")
+    if old then old:Destroy() end
+    pcall(function() RunService:UnbindFromRenderStep("CookiesGlass") end)
+    local cam = workspace.CurrentCamera
+    for _, p in ipairs(cam and cam:GetChildren() or {}) do
+        if p.Name == "CookiesGlass" then p:Destroy() end
+    end
+end)
 
 function GlassFX._start()
-    if GlassFX._bound then return end
-    GlassFX._bound = true
-    RunService:BindToRenderStep("CookiesGlass", Enum.RenderPriority.Camera.Value + 1, GlassFX._step)
+    if GlassFX._conn then return end
+    GlassFX._conn = RunService.RenderStepped:Connect(GlassFX._step)
 end
 
--- La lamina se recoloca despues de la camara en cada frame para que no tiemble
+-- la luz de cada borde gira hacia el mouse con suavizado
 function GlassFX._step()
-    local cam = workspace.CurrentCamera
-    local any = false
-    local blurs = GlassFX._blurs
-    for i = #blurs, 1, -1 do
-        local b = blurs[i]
-        local f = b.frame
-        if b.dead or not f.Parent then
-            table.remove(blurs, i)
-            b.part:Destroy()
-        else
-            local show = cam ~= nil and GlassFX.Enabled and b.enabled and f.Visible
-                and f.AbsoluteSize.X > 8 and f.AbsoluteSize.Y > 8
-                and (not b.visible or b.visible())
-            if show then
-                any = true
-                local ap, as = f.AbsolutePosition, f.AbsoluteSize
-                -- se mete unos px hacia dentro para que no asome por las esquinas redondeadas
-                local inset = b.inset and b.inset(as) or 0
-                local tl = ap + Vector2.new(inset, inset)
-                local br = ap + as - Vector2.new(inset, inset)
-                local tr = Vector2.new(br.X, tl.Y)
-                local function world(p) return cam:ViewportPointToRay(p.X, p.Y, 0).Origin end
-                local tl3, tr3, br3 = world(tl), world(tr), world(br)
-                local cf = cam.CFrame
-                b.part.CFrame = CFrame.fromMatrix((tl3 + br3) / 2, cf.XVector, cf.YVector, cf.ZVector)
-                b.mesh.Scale = Vector3.new((tr3 - tl3).Magnitude, (tr3 - br3).Magnitude, 0)
-                if b.part.Parent ~= cam then b.part.Parent = cam end
-            elseif b.part.Parent then
-                b.part.Parent = nil
-            end
-        end
-    end
-    if any and not GlassFX._dof then
-        GlassFX._dof = create("DepthOfFieldEffect", {
-            Name = "CookiesGlassBlur", FarIntensity = 0, FocusDistance = 51.6,
-            InFocusRadius = 50, NearIntensity = 1, Parent = Lighting,
-        })
-    end
-    if GlassFX._dof then GlassFX._dof.Enabled = any end
-
-    -- bordes: la luz gira hacia el mouse con suavizado
     local m = UserInputService:GetMouseLocation()
-    local hasRims = false
+    local any = false
     for g, r in pairs(GlassFX._rims) do
         local host = r.host
         if g.Parent and host and host.Parent then
-            hasRims = true
+            any = true
             if host.Visible and host.AbsoluteSize.X > 0 then
                 local c = host.AbsolutePosition + host.AbsoluteSize / 2
                 local target = math.deg(math.atan2(m.Y - c.Y, m.X - c.X)) + 180
                 local d = (target - r.angle + 180) % 360 - 180
-                r.angle = r.angle + d * 0.12
-                g.Rotation = r.angle
+                if math.abs(d) > 0.2 then
+                    r.angle = r.angle + d * 0.12
+                    g.Rotation = r.angle
+                end
             end
         else
             GlassFX._rims[g] = nil
         end
     end
-
-    if #blurs == 0 and not hasRims then
-        GlassFX._bound = false
-        pcall(function() RunService:UnbindFromRenderStep("CookiesGlass") end)
-        if GlassFX._dof then GlassFX._dof:Destroy() GlassFX._dof = nil end
+    if not any then
+        GlassFX._conn:Disconnect()
+        GlassFX._conn = nil
     end
 end
 
--- visible(): funcion opcional; inset(absSize): px a recortar por las esquinas
-function GlassFX.blur(frame, visible, inset)
-    local part = create("Part", {
-        Name = "CookiesGlass", Color = rgb(0, 0, 0), Material = Enum.Material.Glass,
-        Size = Vector3.new(1, 1, 0), Anchored = true, CanCollide = false, CanQuery = false,
-        CanTouch = false, CastShadow = false, Transparency = 0.98,
-    })
-    local mesh = create("SpecialMesh", {
-        MeshType = Enum.MeshType.Brick, Offset = Vector3.new(0, 0, -0.000001), Parent = part,
-    })
-    local b = { frame = frame, part = part, mesh = mesh, visible = visible, inset = inset, enabled = true }
-    table.insert(GlassFX._blurs, b)
+local function rimSeq(s)
+    return nseq({ { 0, 1 - 0.9 * s }, { 0.3, 1 - 0.22 * s }, { 0.7, 1 - 0.14 * s }, { 1, 1 - 0.55 * s } })
+end
+
+-- convierte un UIStroke existente en borde de luz (devuelve el gradiente para poder quitarlo)
+function GlassFX.light(stroke, strength, host)
+    local g = create("UIGradient", { Rotation = 225, Transparency = rimSeq(strength or 1), Parent = stroke })
+    GlassFX._rims[g] = { host = host or stroke.Parent, angle = 225 }
     GlassFX._start()
-    function b.SetEnabled(_, v) b.enabled = v ~= false end
-    function b.Destroy()
-        b.dead = true
-        local i = table.find(GlassFX._blurs, b)
-        if i then table.remove(GlassFX._blurs, i) end
-        part:Destroy()
-    end
-    return b
+    return g
 end
 
 -- Borde especular: brillo fuerte del lado de la luz y un rebote suave en el lado opuesto
@@ -530,11 +494,7 @@ function GlassFX.rim(parent, strength, thickness, host)
         Color = rgb(255, 255, 255), Thickness = thickness or 1, Transparency = 0,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border, ThemeIgnore = true, Parent = parent,
     })
-    local g = create("UIGradient", {
-        Rotation = 225,
-        Transparency = nseq({ { 0, 1 - 0.9 * s }, { 0.3, 1 - 0.22 * s }, { 0.7, 1 - 0.14 * s }, { 1, 1 - 0.55 * s } }),
-        Parent = st,
-    })
+    local g = create("UIGradient", { Rotation = 225, Transparency = rimSeq(s), Parent = st })
     GlassFX._rims[g] = { host = host or parent, angle = 225 }
     GlassFX._start()
     return st
@@ -574,8 +534,10 @@ local GLASS_SURF = {
     Input      = { GLASS_BLACK, 0.72 },
     Stroke     = { GLASS_WHITE, 0.9 },   -- divisores y pistas: lineas finas de luz
 }
-local GLASS_STROKE = { Stroke = 0.86, Outline = 0.9 }
-GlassFX.BackgroundAlpha = 0.3
+-- transparencia minima de cada borde (los de las filas conservan la suya, que sube con el hover)
+local GLASS_STROKE = { Stroke = 0, Outline = 1 }  -- el contorno oscuro se oculta: lo reemplaza el borde de luz
+-- sin desenfoque detras, el vidrio necesita ser casi solido para que el juego no lo ensucie
+GlassFX.BackgroundAlpha = 0.14
 local glassState = setmetatable({}, { __mode = "k" })
 
 local function surfKey(c, map)
@@ -608,6 +570,8 @@ local function glassify(inst)
             inst.Transparency = math.max(st.t, GLASS_STROKE[st.key])
         end
         apply()
+        -- la luz del borde gira con el mouse, como en las tarjetas del finder
+        st.grad = GlassFX.light(inst, 1)
         -- si la libreria vuelve a ponerle el color del tema (repintado), se reaplica el borde de luz
         st.conn = inst:GetPropertyChangedSignal("Color"):Connect(function()
             local k = surfKey(inst.Color, GLASS_STROKE)
@@ -659,18 +623,9 @@ local function unglassify(inst)
     if not inst.Parent then return end
     if st.stroke then
         inst.Color, inst.Transparency = Theme[st.key], st.t
+        if st.grad then st.grad:Destroy() end
     else
         inst.BackgroundColor3, inst.BackgroundTransparency = Theme[st.key], st.t
-    end
-end
-
--- cambia la opacidad del vidrio de fondo (mas solido cuando no hay desenfoque detras)
-local function refreshGlassBackground(gui)
-    for _, d in ipairs(gui:GetDescendants()) do
-        local st = glassState[d]
-        if st and st.key == "Background" and not st.stroke then
-            tween(d, { BackgroundTransparency = GlassFX.BackgroundAlpha }, 0.25)
-        end
     end
 end
 
@@ -1150,6 +1105,7 @@ function Library:CreateWindow(opts)
         Position = UDim2.new(1, -14, 0.5, 0), ZIndex = 6,
         Size = UDim2.fromOffset(btnsW, 28), Parent = top,
     }, { listLayout(4, { FillDirection = Enum.FillDirection.Horizontal }) })
+    self._btnHolder = btnHolder
 
     local function iconButton(kind, order, hoverColor)
         local b = create("TextButton", {
@@ -1794,8 +1750,6 @@ function Library:CreateWindow(opts)
     if type(state.x) == "number" and type(state.y) == "number" then
         root.Position = clampRoot(UDim2.new(0.5, state.x, 0.5, state.y))
     end
-    self._blurOn = W.Blur ~= false
-    if type(state.blur) == "boolean" then self._blurOn = state.blur end
     local glass = tostring(W.Style):lower() == "glass"
     if type(state.glass) == "boolean" then glass = state.glass end
     if glass then self:SetGlass(true) end
@@ -2211,35 +2165,53 @@ function WindowMT:ResetLayout()
     self:ResetPosition()
 end
 
--- Estilo cristal: superficies translucidas, tinte de acento, reflejo, borde de luz y desenfoque
+-- Estilo cristal (mismo lenguaje que la ventana de lista): vidrio oscuro con tinte de acento,
+-- reflejo, borde de luz exterior + borde interior que da grosor, esquinas mas redondas,
+-- capsula para los botones de la barra y presion liquida en los botones
+local GLASS_CORNER = 18
 function WindowMT:SetGlass(on, save)
     on = on and true or false
     self._glass = on
     local g = self._glassFx
+    local shell, root = self._shell, self._root
+    local P = SHELL_PAD
     if on and not g then
-        local shell, root = self._shell, self._root
-        local P, R = SHELL_PAD, self.Config.Window.Corner
-        g = {}
+        local R = GLASS_CORNER
+        g = { corner = shell:FindFirstChildOfClass("UICorner") }
         -- el shell tiene padding: las capas se estiran para cubrirlo entero
         g.tint = GlassFX.tint(shell, R, Theme.Accent, 0.2, 0)
         g.tint.Position, g.tint.Size = UDim2.fromOffset(-P, -P), UDim2.new(1, P * 2, 1, P * 2)
-        g.sheen = GlassFX.sheen(shell, R, 0.75, 170, 0)
-        g.sheen.Position, g.sheen.Size = UDim2.fromOffset(-P, -P), UDim2.new(1, P * 2, 0, 170)
+        g.sheen = GlassFX.sheen(shell, R, 0.7, 180, 0)
+        g.sheen.Position, g.sheen.Size = UDim2.fromOffset(-P, -P), UDim2.new(1, P * 2, 0, 180)
+        g.inner = create("Frame", {
+            Position = UDim2.fromOffset(-P + 1, -P + 1), Size = UDim2.new(1, P * 2 - 2, 1, P * 2 - 2),
+            BackgroundTransparency = 1, ZIndex = 3, Parent = shell,
+        }, { corner(R - 1), create("UIStroke", { Color = GLASS_WHITE, Transparency = 0.93, Thickness = 1, ThemeIgnore = true }) })
         g.rimHost = create("Frame", {
             Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2, Parent = root,
         }, { corner(R) })
         GlassFX.rim(g.rimHost, 1, 1.5)
-        g.blur = GlassFX.blur(shell,
-            function() return self.Visible and root.Visible and self._blurOn ~= false end,
-            function(as) return R * 0.8 * as.X / math.max(self._w, 1) end)
+        local bh = self._btnHolder
+        if bh then
+            g.capsule = create("Frame", {
+                AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
+                Size = UDim2.fromOffset(bh.Size.X.Offset + 8, 36), BackgroundColor3 = GLASS_WHITE,
+                BackgroundTransparency = 0.94, ZIndex = 5, ThemeIgnore = true, Parent = bh.Parent,
+            }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            GlassFX.rim(g.capsule, 0.75, 1)
+        end
         self._glassFx = g
     end
     if g then
-        g.tint.Visible, g.sheen.Visible, g.rimHost.Visible = on, on, on
-        g.blur:SetEnabled(on)
+        g.tint.Visible, g.sheen.Visible, g.inner.Visible, g.rimHost.Visible = on, on, on, on
+        if g.capsule then g.capsule.Visible = on end
+        if g.corner then
+            g.base = g.base or g.corner.CornerRadius
+            g.corner.CornerRadius = on and UDim.new(0, GLASS_CORNER) or g.base
+        end
     end
     if on then
-        GlassFX.BackgroundAlpha = self._blurOn ~= false and 0.3 or 0.14
+        GlassFX.Liquid = true
         for _, d in ipairs(self.Gui:GetDescendants()) do glassify(d) end
         if not self._glassConn then
             -- los elementos que se crean despues tambien se vuelven de cristal
@@ -2257,14 +2229,6 @@ function WindowMT:SetGlass(on, save)
     if save then self:_saveState({ glass = on }) end
 end
 
-function WindowMT:SetBlur(on, save)
-    self._blurOn = on ~= false
-    -- sin desenfoque detras, el vidrio se vuelve mas solido para que el juego no lo ensucie
-    GlassFX.BackgroundAlpha = self._blurOn and 0.3 or 0.14
-    if self._glass then refreshGlassBackground(self.Gui) end
-    if save then self:_saveState({ blur = self._blurOn }) end
-end
-
 -- fn se ejecuta al descargar la interfaz (util para detener loops del script)
 function WindowMT:OnUnload(fn)
     if type(fn) == "function" then table.insert(self._unload, fn) end
@@ -2276,7 +2240,6 @@ function WindowMT:Destroy()
     for _, fn in ipairs(self._unload) do pcall(fn) end
     for _, c in ipairs(self._conns) do c:Disconnect() end
     if self._glassConn then self._glassConn:Disconnect() end
-    if self._glassFx then self._glassFx.blur:Destroy() end
     for _, flag in ipairs(self._flags) do Library.Flags[flag] = nil end
     local i = table.find(Library.Windows, self)
     if i then table.remove(Library.Windows, i) end
@@ -4794,16 +4757,10 @@ function WindowMT:CreateSettingsTab(name, icon)
             end)
         end,
     })
-    local gl, bl = look:AddColumns(2)
-    gl:AddToggle({
-        Name = "Glass", Default = win._glass == true,
+    look:AddToggle({
+        Name = "Glass Style", Default = win._glass == true,
         Tooltip = "Estilo cristal: ventana translúcida con bordes de luz",
         Callback = function(v) win:SetGlass(v, true) end,
-    })
-    bl:AddToggle({
-        Name = "Blur", Default = win._blurOn ~= false,
-        Tooltip = "Desenfoca el juego detrás de la ventana (solo con Glass; necesita gráficos altos)",
-        Callback = function(v) win:SetBlur(v, true) end,
     })
 
     ----------------------------------------------------------------
@@ -5051,8 +5008,7 @@ function Library:CreateListWindow(o)
     local statePath = folder .. "/_list_" .. tostring(o.Name or "window"):gsub("%W", "") .. ".txt"
     local saved = (hasFS and o.RememberSettings ~= false) and readJSON(statePath) or {}
     local set = {
-        opacity = math.clamp(tonumber(saved.opacity) or o.Opacity or 0.72, 0.35, 1),
-        blur = saved.blur == nil and o.Blur ~= false or saved.blur == true,
+        opacity = math.clamp(tonumber(saved.opacity) or o.Opacity or 0.86, 0.35, 1),
     }
     if type(saved.accent) == "string" then
         local r, g, b = saved.accent:match("^#?(%x%x)(%x%x)(%x%x)$")
@@ -5061,7 +5017,7 @@ function Library:CreateListWindow(o)
     local function save()
         if not hasFS or o.RememberSettings == false then return end
         if ensureFolder(folder) then
-            writeJSON(statePath, { opacity = set.opacity, blur = set.blur, accent = toHex(Theme.Accent) })
+            writeJSON(statePath, { opacity = set.opacity, accent = toHex(Theme.Accent) })
         end
     end
 
@@ -5112,9 +5068,6 @@ function Library:CreateListWindow(o)
         Parent = root,
     }, { corner(R - 1), create("UIStroke", { Color = WHITE, Transparency = 0.93, Thickness = 1, ThemeIgnore = true }) })
     L._root, L._holder = root, holder
-    L._blur = GlassFX.blur(root, function()
-        return L.Visible and set.blur and holder.Visible
-    end, function(as) return R * 0.55 * as.X / W end)
 
     ------------------------------------------------------------ header
     local header = create("Frame", { Size = UDim2.new(1, 0, 0, HEADER_H), BackgroundTransparency = 1, ZIndex = 4, Parent = root })
@@ -5654,7 +5607,7 @@ function Library:CreateListWindow(o)
 
     ------------------------------------------------------------ ajustes (engrane)
     local pop = create("Frame", {
-        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, HEADER_H - 4), Size = UDim2.fromOffset(240, 214),
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, HEADER_H - 4), Size = UDim2.fromOffset(240, 160),
         BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.08, Visible = false, ZIndex = 40, Parent = root,
     }, { corner(16), padding(14, 12, 14, 12) })
     GlassFX.rim(pop, 0.9, 1)
@@ -5730,25 +5683,6 @@ function Library:CreateListWindow(o)
     end
     paintSwatches()
 
-    popTitle("BACKGROUND BLUR", 112)
-    local blurBtn = create("TextButton", { Text = "", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 108),
-        Size = UDim2.fromOffset(36, 20), BackgroundColor3 = Theme.Accent, ZIndex = 42, Parent = pop },
-        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
-    local blurKnob = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14),
-        BackgroundColor3 = WHITE, ZIndex = 43, ThemeIgnore = true, Parent = blurBtn },
-        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
-    local function paintBlur(t)
-        tween(blurKnob, { Position = UDim2.new(0, set.blur and 26 or 10, 0.5, 0) }, t or 0.25, Enum.EasingStyle.Back)
-        tween(blurBtn, { BackgroundColor3 = set.blur and Theme.Accent or Theme.Row }, t or 0.2)
-    end
-    paintBlur(0)
-    blurBtn.Activated:Connect(function()
-        set.blur = not set.blur
-        paintBlur()
-        save()
-    end)
-    label({ Text = "Needs high graphics quality", TextSize = 10, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(0, 132),
-        Size = UDim2.new(1, 0, 0, 14), ZIndex = 41, Parent = pop })
     local resetBtn = create("TextButton", { Text = "", Position = UDim2.new(0, 0, 1, -28), Size = UDim2.new(1, 0, 0, 28),
         BackgroundColor3 = WHITE, BackgroundTransparency = 0.92, ZIndex = 42, ThemeIgnore = true, Parent = pop },
         { corner(9) })
@@ -5756,9 +5690,7 @@ function Library:CreateListWindow(o)
         ZIndex = 43, Parent = resetBtn })
     pressFx(resetBtn, nil, 0.96)
     resetBtn.Activated:Connect(function()
-        set.blur = o.Blur ~= false
-        setOpacity(o.Opacity or 0.72)
-        paintBlur()
+        setOpacity(o.Opacity or 0.86)
         save()
     end)
 
@@ -5949,7 +5881,6 @@ function Library:CreateListWindow(o)
         L.Active = false
         for _, fn in ipairs(L._unload) do pcall(fn) end
         for _, c in ipairs(L._conns) do c:Disconnect() end
-        L._blur:Destroy()
         tween(stageScale, { Scale = 0.94 }, 0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
         task.delay(0.2, function() gui:Destroy() end)
     end
