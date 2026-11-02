@@ -3,6 +3,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -36,7 +37,7 @@ local DEFAULT_SDK = "https://www.keyforge.win/sdk/client.lua"
 
 local KeySystem = {}
 KeySystem.__index = KeySystem
-KeySystem.Version = "2.0.0"
+KeySystem.Version = "2.1.0"
 
 local hasFS = typeof(writefile) == "function" and typeof(readfile) == "function"
     and typeof(isfolder) == "function" and typeof(makefolder) == "function"
@@ -188,6 +189,8 @@ function KeySystem.new(opts)
         OnFail        = opts.OnFail,
         OnClose       = opts.OnClose,
     }
+    -- Style = "Glass": tarjeta translucida con tinte, reflejo y borde de luz que sigue al mouse
+    local glass = tostring(opts.Style or ""):lower() == "glass"
     -- si no hay Note ni Steps, se muestra la guia de 3 pasos
     if cfg.Steps == nil and cfg.Note == nil then
         cfg.Steps = {
@@ -247,7 +250,7 @@ function KeySystem.new(opts)
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
         BackgroundTransparency = 1, Active = true, Parent = gui,
     })
-    tween(dim, { BackgroundTransparency = 0.45 }, 0.4)
+    tween(dim, { BackgroundTransparency = glass and 0.62 or 0.45 }, 0.4)
 
     local CARD_W, CARD_H = 600, 340
     local PANEL_W = 200
@@ -1102,11 +1105,58 @@ function KeySystem.new(opts)
     -- precarga el SDK de KeyForge mientras el usuario lee la ventana (verificar se siente instantaneo)
     if cfg.KeyForge then task.spawn(getClient) end
 
+    if glass then
+        local WHITE = rgb(255, 255, 255)
+        local function nseq(points)
+            local kps = {}
+            for i, p in ipairs(points) do kps[i] = NumberSequenceKeypoint.new(p[1], p[2]) end
+            return NumberSequence.new(kps)
+        end
+        -- cada superficie del tema se vuelve translucida
+        local alpha = {
+            { Theme.Panel, 0.42 }, { Theme.Element, 0.4 }, { Theme.Row, 0.5 },
+            { Theme.RowHover, 0.38 }, { Theme.Input, 0.32 },
+        }
+        root.BackgroundTransparency = 0.28
+        for _, d in ipairs(root:GetDescendants()) do
+            if d:IsA("GuiObject") and d.BackgroundTransparency < 0.05 then
+                for _, p in ipairs(alpha) do
+                    if d.BackgroundColor3 == p[1] then d.BackgroundTransparency = p[2] break end
+                end
+            end
+        end
+        -- tinte de acento por la esquina y reflejo en la parte superior (detras del contenido)
+        create("Frame", {
+            Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Accent, ZIndex = 0, Parent = root,
+        }, { corner(14), create("UIGradient", { Rotation = 35, Transparency = nseq({ { 0, 0.8 }, { 0.5, 1 }, { 1, 1 } }) }) })
+        create("Frame", {
+            Size = UDim2.new(1, 0, 0, 150), BackgroundColor3 = WHITE, ZIndex = 0, Parent = root,
+        }, { corner(14), create("UIGradient", { Rotation = 90, Transparency = nseq({ { 0, 0.88 }, { 1, 1 } }) }) })
+        -- el borde pasa a ser de luz: brillo fuerte del lado del mouse y rebote suave enfrente
+        local rim = root:FindFirstChildOfClass("UIStroke")
+        if rim then
+            rim.Color, rim.Transparency, rim.Thickness = WHITE, 0, 1.5
+            local g = create("UIGradient", {
+                Rotation = 225, Parent = rim,
+                Transparency = nseq({ { 0, 0.1 }, { 0.3, 0.78 }, { 0.7, 0.86 }, { 1, 0.45 } }),
+            })
+            local angle = 225
+            table.insert(self._conns, RunService.RenderStepped:Connect(function()
+                local m = UserInputService:GetMouseLocation()
+                local c = root.AbsolutePosition + root.AbsoluteSize / 2
+                local target = math.deg(math.atan2(m.Y - c.Y, m.X - c.X)) + 180
+                angle = angle + ((target - angle + 180) % 360 - 180) * 0.12
+                g.Rotation = angle
+            end))
+        end
+    end
+
     self._ready = true
     tween(root, { GroupTransparency = 0 }, 0.3, Enum.EasingStyle.Quad)
     if shadow then tween(shadow, { ImageTransparency = 0.4 }, 0.4, Enum.EasingStyle.Quad) end
     tween(holder, { Position = UDim2.fromScale(0.5, 0.5) }, 0.45, Enum.EasingStyle.Quart)
-    tween(uiScale, { Scale = baseScale }, 0.4, Enum.EasingStyle.Quart)
+    -- en cristal la tarjeta entra con un pequeno rebote, como una gota
+    tween(uiScale, { Scale = baseScale }, glass and 0.55 or 0.4, glass and Enum.EasingStyle.Back or Enum.EasingStyle.Quart)
     if logoImg then
         logoImg.Rotation = -12
         tween(logoImg, { Rotation = 0 }, 0.6, Enum.EasingStyle.Back)
