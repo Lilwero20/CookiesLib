@@ -233,24 +233,18 @@ function KeySystem.new(opts)
     if not pcall(function() gui.Parent = parent end) then gui.Parent = PlayerGui end
     self.Gui = gui
 
+    -- sin desenfoque: solo se oscurece el juego detras de la tarjeta (se borra el blur de versiones viejas)
     local blur
-    if cfg.Blur then
-        pcall(function()
-            local prev = Lighting:FindFirstChild("CookiesKeyBlur")
-            if prev then prev:Destroy() end
-            blur = Instance.new("BlurEffect")
-            blur.Name = "CookiesKeyBlur"
-            blur.Size = 0
-            blur.Parent = Lighting
-            tween(blur, { Size = 12 }, 0.5)
-        end)
-    end
+    pcall(function()
+        local prev = Lighting:FindFirstChild("CookiesKeyBlur")
+        if prev then prev:Destroy() end
+    end)
 
     local dim = create("Frame", {
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
         BackgroundTransparency = 1, Active = true, Parent = gui,
     })
-    tween(dim, { BackgroundTransparency = glass and 0.62 or 0.45 }, 0.4)
+    tween(dim, { BackgroundTransparency = 0.45 }, 0.4)
 
     local CARD_W, CARD_H = 600, 340
     local PANEL_W = 200
@@ -1124,14 +1118,26 @@ function KeySystem.new(opts)
                 if c == p[1] then return p end
             end
         end
-        root.BackgroundTransparency = cfg.Blur and 0.28 or 0.14
+        root.BackgroundTransparency = 0.14
+        -- bordes de luz: un gradiente que gira hacia el mouse (brillo de un lado, rebote enfrente)
+        local lights = {}
+        local function light(stroke, strength, host)
+            local s = strength
+            local g = create("UIGradient", {
+                Rotation = 225, Parent = stroke,
+                Transparency = nseq({ { 0, 1 - 0.9 * s }, { 0.3, 1 - 0.22 * s }, { 0.7, 1 - 0.14 * s }, { 1, 1 - 0.55 * s } }),
+            })
+            table.insert(lights, { g = g, host = host or stroke.Parent, angle = 225 })
+        end
+        local rootStroke = root:FindFirstChildOfClass("UIStroke")
         for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("UIStroke") and (d.Color == Theme.Stroke or d.Color == Theme.Outline) then
-                local base = d.Transparency
-                d.Color, d.Transparency = WHITE, math.max(base, 0.86)
+            if d ~= rootStroke and d:IsA("UIStroke") and (d.Color == Theme.Stroke or d.Color == Theme.Outline) then
+                local base = math.max(d.Transparency, 0.45)
+                d.Color, d.Transparency = WHITE, base
+                light(d, 1)
                 -- al perder el foco el input vuelve al color del borde: se reaplica la luz
                 d:GetPropertyChangedSignal("Color"):Connect(function()
-                    if d.Color == Theme.Stroke then d.Color, d.Transparency = WHITE, math.max(base, 0.86) end
+                    if d.Color == Theme.Stroke then d.Color, d.Transparency = WHITE, base end
                 end)
             elseif d:IsA("GuiObject") and d.BackgroundTransparency < 0.05 and find(d.BackgroundColor3) then
                 local p = find(d.BackgroundColor3)
@@ -1151,22 +1157,22 @@ function KeySystem.new(opts)
             Size = UDim2.new(1, 0, 0, 150), BackgroundColor3 = WHITE, ZIndex = 0, Parent = root,
         }, { corner(14), create("UIGradient", { Rotation = 90, Transparency = nseq({ { 0, 0.88 }, { 1, 1 } }) }) })
         -- el borde pasa a ser de luz: brillo fuerte del lado del mouse y rebote suave enfrente
-        local rim = root:FindFirstChildOfClass("UIStroke")
-        if rim then
-            rim.Color, rim.Transparency, rim.Thickness = WHITE, 0, 1.5
-            local g = create("UIGradient", {
-                Rotation = 225, Parent = rim,
-                Transparency = nseq({ { 0, 0.1 }, { 0.3, 0.78 }, { 0.7, 0.86 }, { 1, 0.45 } }),
-            })
-            local angle = 225
-            table.insert(self._conns, RunService.RenderStepped:Connect(function()
-                local m = UserInputService:GetMouseLocation()
-                local c = root.AbsolutePosition + root.AbsoluteSize / 2
-                local target = math.deg(math.atan2(m.Y - c.Y, m.X - c.X)) + 180
-                angle = angle + ((target - angle + 180) % 360 - 180) * 0.12
-                g.Rotation = angle
-            end))
+        if rootStroke then
+            rootStroke.Color, rootStroke.Transparency, rootStroke.Thickness = WHITE, 0, 1.5
+            light(rootStroke, 1, root)
         end
+        table.insert(self._conns, RunService.RenderStepped:Connect(function()
+            local m = UserInputService:GetMouseLocation()
+            for _, l in ipairs(lights) do
+                local h = l.host
+                if h.Parent and h.AbsoluteSize.X > 0 then
+                    local c = h.AbsolutePosition + h.AbsoluteSize / 2
+                    local target = math.deg(math.atan2(m.Y - c.Y, m.X - c.X)) + 180
+                    l.angle = l.angle + ((target - l.angle + 180) % 360 - 180) * 0.12
+                    l.g.Rotation = l.angle
+                end
+            end
+        end))
     end
 
     self._ready = true
