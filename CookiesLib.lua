@@ -9,7 +9,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local Library = {}
-Library.Version = "3.5.0"
+Library.Version = "3.6.0"
 Library.Flags = {}
 Library.Options = Library.Flags
 Library.Windows = {}
@@ -116,6 +116,8 @@ Library.Config = {
         RememberLayout = true,     -- recuerda tamano, posicion, tab, tema y ajustes entre ejecuciones
         UIScale = 1,               -- escala extra elegida por el usuario (0.6 - 1.4)
         SearchShortcut = true,     -- Ctrl+F abre la busqueda global
+        Style = "Default",         -- "Default" | "Glass" (translucido, desenfoque y bordes de luz)
+        Blur = true,               -- con Style = "Glass": desenfoca lo que hay detras de la ventana
     },
     Tab = { Columns = 2, Padding = 12, Gap = 10, IconSize = 20, IconTint = true, SingleColumnBelow = 440 },
     Section = {
@@ -404,6 +406,180 @@ local function pressFx(btn, target, amount)
     btn.MouseButton1Up:Connect(up)
     btn.MouseLeave:Connect(up)
     return sc
+end
+
+----------------------------------------------------------------
+-- Cristal (Style = "Glass"): desenfoque real detras de la ventana, superficies translucidas,
+-- bordes especulares que giran siguiendo al mouse y reflejo en la parte superior.
+-- El desenfoque es una lamina de Glass pegada a la camara + un DepthOfField cercano: todo lo que
+-- queda detras del panel se ve borroso. Necesita graficos altos; si no, queda solo la translucidez.
+----------------------------------------------------------------
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+
+local function nseq(points)
+    local kps = {}
+    for i, p in ipairs(points) do kps[i] = NumberSequenceKeypoint.new(p[1], p[2]) end
+    return NumberSequence.new(kps)
+end
+
+local GlassFX = { Enabled = true, _blurs = {}, _rims = setmetatable({}, { __mode = "k" }) }
+Library.Glass = GlassFX
+
+function GlassFX._start()
+    if GlassFX._bound then return end
+    GlassFX._bound = true
+    RunService:BindToRenderStep("CookiesGlass", Enum.RenderPriority.Camera.Value + 1, GlassFX._step)
+end
+
+-- La lamina se recoloca despues de la camara en cada frame para que no tiemble
+function GlassFX._step()
+    local cam = workspace.CurrentCamera
+    local any = false
+    local blurs = GlassFX._blurs
+    for i = #blurs, 1, -1 do
+        local b = blurs[i]
+        local f = b.frame
+        if b.dead or not f.Parent then
+            table.remove(blurs, i)
+            b.part:Destroy()
+        else
+            local show = cam ~= nil and GlassFX.Enabled and b.enabled and f.Visible
+                and f.AbsoluteSize.X > 8 and f.AbsoluteSize.Y > 8
+                and (not b.visible or b.visible())
+            if show then
+                any = true
+                local ap, as = f.AbsolutePosition, f.AbsoluteSize
+                -- se mete unos px hacia dentro para que no asome por las esquinas redondeadas
+                local inset = b.inset and b.inset(as) or 0
+                local tl = ap + Vector2.new(inset, inset)
+                local br = ap + as - Vector2.new(inset, inset)
+                local tr = Vector2.new(br.X, tl.Y)
+                local function world(p) return cam:ViewportPointToRay(p.X, p.Y, 0).Origin end
+                local tl3, tr3, br3 = world(tl), world(tr), world(br)
+                local cf = cam.CFrame
+                b.part.CFrame = CFrame.fromMatrix((tl3 + br3) / 2, cf.XVector, cf.YVector, cf.ZVector)
+                b.mesh.Scale = Vector3.new((tr3 - tl3).Magnitude, (tr3 - br3).Magnitude, 0)
+                if b.part.Parent ~= cam then b.part.Parent = cam end
+            elseif b.part.Parent then
+                b.part.Parent = nil
+            end
+        end
+    end
+    if any and not GlassFX._dof then
+        GlassFX._dof = create("DepthOfFieldEffect", {
+            Name = "CookiesGlassBlur", FarIntensity = 0, FocusDistance = 51.6,
+            InFocusRadius = 50, NearIntensity = 1, Parent = Lighting,
+        })
+    end
+    if GlassFX._dof then GlassFX._dof.Enabled = any end
+
+    -- bordes: la luz gira hacia el mouse con suavizado
+    local m = UserInputService:GetMouseLocation()
+    local hasRims = false
+    for g, r in pairs(GlassFX._rims) do
+        local host = r.host
+        if g.Parent and host and host.Parent then
+            hasRims = true
+            if host.Visible and host.AbsoluteSize.X > 0 then
+                local c = host.AbsolutePosition + host.AbsoluteSize / 2
+                local target = math.deg(math.atan2(m.Y - c.Y, m.X - c.X)) + 180
+                local d = (target - r.angle + 180) % 360 - 180
+                r.angle = r.angle + d * 0.12
+                g.Rotation = r.angle
+            end
+        else
+            GlassFX._rims[g] = nil
+        end
+    end
+
+    if #blurs == 0 and not hasRims then
+        GlassFX._bound = false
+        pcall(function() RunService:UnbindFromRenderStep("CookiesGlass") end)
+        if GlassFX._dof then GlassFX._dof:Destroy() GlassFX._dof = nil end
+    end
+end
+
+-- visible(): funcion opcional; inset(absSize): px a recortar por las esquinas
+function GlassFX.blur(frame, visible, inset)
+    local part = create("Part", {
+        Name = "CookiesGlass", Color = rgb(0, 0, 0), Material = Enum.Material.Glass,
+        Size = Vector3.new(1, 1, 0), Anchored = true, CanCollide = false, CanQuery = false,
+        CanTouch = false, CastShadow = false, Transparency = 0.98,
+    })
+    local mesh = create("SpecialMesh", {
+        MeshType = Enum.MeshType.Brick, Offset = Vector3.new(0, 0, -0.000001), Parent = part,
+    })
+    local b = { frame = frame, part = part, mesh = mesh, visible = visible, inset = inset, enabled = true }
+    table.insert(GlassFX._blurs, b)
+    GlassFX._start()
+    function b.SetEnabled(_, v) b.enabled = v ~= false end
+    function b.Destroy()
+        b.dead = true
+        local i = table.find(GlassFX._blurs, b)
+        if i then table.remove(GlassFX._blurs, i) end
+        part:Destroy()
+    end
+    return b
+end
+
+-- Borde especular: brillo fuerte del lado de la luz y un rebote suave en el lado opuesto
+function GlassFX.rim(parent, strength, thickness, host)
+    local s = strength or 1
+    local st = create("UIStroke", {
+        Color = rgb(255, 255, 255), Thickness = thickness or 1, Transparency = 0,
+        ApplyStrokeMode = Enum.ApplyStrokeMode.Border, ThemeIgnore = true, Parent = parent,
+    })
+    local g = create("UIGradient", {
+        Rotation = 225,
+        Transparency = nseq({ { 0, 1 - 0.9 * s }, { 0.3, 1 - 0.22 * s }, { 0.7, 1 - 0.14 * s }, { 1, 1 - 0.55 * s } }),
+        Parent = st,
+    })
+    GlassFX._rims[g] = { host = host or parent, angle = 225 }
+    GlassFX._start()
+    return st
+end
+
+-- Reflejo curvo: franja blanca que se desvanece hacia abajo
+function GlassFX.sheen(parent, radius, strength, height, z)
+    return create("Frame", {
+        Size = height and UDim2.new(1, 0, 0, height) or UDim2.fromScale(1, 0.6),
+        BackgroundColor3 = rgb(255, 255, 255), ZIndex = z or 0, ThemeIgnore = true, Parent = parent,
+    }, {
+        create("UICorner", { CornerRadius = radius == "full" and UDim.new(1, 0) or UDim.new(0, radius or 0) }),
+        create("UIGradient", { Rotation = 90, Transparency = nseq({ { 0, 1 - 0.16 * (strength or 1) }, { 1, 1 } }) }),
+    })
+end
+
+-- Tinte de color que entra por una esquina, como luz atravesando el vidrio
+function GlassFX.tint(parent, radius, color, amount, z)
+    return create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = color or Theme.Accent, ZIndex = z or 0, Parent = parent,
+    }, {
+        create("UICorner", { CornerRadius = UDim.new(0, radius or 0) }),
+        create("UIGradient", { Rotation = 35, Transparency = nseq({ { 0, 1 - (amount or 0.2) }, { 0.5, 1 }, { 1, 1 } }) }),
+    })
+end
+
+-- Transparencia de cada color del tema cuando la ventana usa Style = "Glass"
+local GLASS_ALPHA = { Background = 0.3, Panel = 0.42, Element = 0.4, Row = 0.5, RowHover = 0.38, Input = 0.32 }
+local glassOrig = setmetatable({}, { __mode = "k" })
+-- los popups (dropdowns abiertos, tooltips, notificaciones) usan ZIndex alto y quedan opacos para leerse bien
+local function glassify(inst)
+    if not inst:IsA("GuiObject") or inst.ZIndex >= 40 then return end
+    local map = themed[inst]
+    local a = map and GLASS_ALPHA[map.BackgroundColor3]
+    if a and inst.BackgroundTransparency < 0.05 and glassOrig[inst] == nil then
+        glassOrig[inst] = inst.BackgroundTransparency
+        inst.BackgroundTransparency = a
+    end
+end
+local function unglassify(inst)
+    local o = glassOrig[inst]
+    if o ~= nil then
+        glassOrig[inst] = nil
+        if inst.Parent then inst.BackgroundTransparency = o end
+    end
 end
 
 local function emit(callback, ...)
@@ -824,6 +1000,7 @@ function Library:CreateWindow(opts)
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Background,
         ClipsDescendants = true, Parent = root,
     }, { corner(W.Corner), stroke(Theme.Outline, 1), padding(SHELL_PAD, SHELL_PAD, SHELL_PAD, SHELL_PAD) })
+    self._shell = shell
     -- leve degradado vertical: le da profundidad al fondo sin cambiar el color base
     create("UIGradient", {
         Rotation = 90,
@@ -1525,6 +1702,11 @@ function Library:CreateWindow(opts)
     if type(state.x) == "number" and type(state.y) == "number" then
         root.Position = clampRoot(UDim2.new(0.5, state.x, 0.5, state.y))
     end
+    self._blurOn = W.Blur ~= false
+    if type(state.blur) == "boolean" then self._blurOn = state.blur end
+    local glass = tostring(W.Style):lower() == "glass"
+    if type(state.glass) == "boolean" then glass = state.glass end
+    if glass then self:SetGlass(true) end
     self._ready = true
     table.insert(Library.Windows, self)
 
@@ -1801,7 +1983,12 @@ function WindowMT:SetVisible(state)
     self.Visible = state
     if state then
         self._root.Visible = true
-        tween(self._scale, { Scale = self._baseScale() }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        if self._glass then
+            -- en cristal la ventana aparece con un pequeño rebote, como una gota
+            tween(self._scale, { Scale = self._baseScale() }, 0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        else
+            tween(self._scale, { Scale = self._baseScale() }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        end
     else
         self:_hideTip()
         tween(self._scale, { Scale = 0.94 }, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -1932,6 +2119,55 @@ function WindowMT:ResetLayout()
     self:ResetPosition()
 end
 
+-- Estilo cristal: superficies translucidas, tinte de acento, reflejo, borde de luz y desenfoque
+function WindowMT:SetGlass(on, save)
+    on = on and true or false
+    self._glass = on
+    local g = self._glassFx
+    if on and not g then
+        local shell, root = self._shell, self._root
+        local P, R = SHELL_PAD, self.Config.Window.Corner
+        g = {}
+        -- el shell tiene padding: las capas se estiran para cubrirlo entero
+        g.tint = GlassFX.tint(shell, R, Theme.Accent, 0.2, 0)
+        g.tint.Position, g.tint.Size = UDim2.fromOffset(-P, -P), UDim2.new(1, P * 2, 1, P * 2)
+        g.sheen = GlassFX.sheen(shell, R, 0.75, 170, 0)
+        g.sheen.Position, g.sheen.Size = UDim2.fromOffset(-P, -P), UDim2.new(1, P * 2, 0, 170)
+        g.rimHost = create("Frame", {
+            Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2, Parent = root,
+        }, { corner(R) })
+        GlassFX.rim(g.rimHost, 1, 1.5)
+        g.blur = GlassFX.blur(shell,
+            function() return self.Visible and root.Visible and self._blurOn ~= false end,
+            function(as) return R * 0.8 * as.X / math.max(self._w, 1) end)
+        self._glassFx = g
+    end
+    if g then
+        g.tint.Visible, g.sheen.Visible, g.rimHost.Visible = on, on, on
+        g.blur:SetEnabled(on)
+    end
+    if on then
+        for _, d in ipairs(self.Gui:GetDescendants()) do glassify(d) end
+        if not self._glassConn then
+            -- los elementos que se crean despues tambien se vuelven de cristal
+            self._glassConn = self.Gui.DescendantAdded:Connect(function(d)
+                task.defer(function()
+                    if self._glass and d.Parent then glassify(d) end
+                end)
+            end)
+        end
+    else
+        if self._glassConn then self._glassConn:Disconnect() self._glassConn = nil end
+        for _, d in ipairs(self.Gui:GetDescendants()) do unglassify(d) end
+    end
+    if save then self:_saveState({ glass = on }) end
+end
+
+function WindowMT:SetBlur(on, save)
+    self._blurOn = on ~= false
+    if save then self:_saveState({ blur = self._blurOn }) end
+end
+
 -- fn se ejecuta al descargar la interfaz (util para detener loops del script)
 function WindowMT:OnUnload(fn)
     if type(fn) == "function" then table.insert(self._unload, fn) end
@@ -1942,6 +2178,8 @@ function WindowMT:Destroy()
     self._destroyed = true
     for _, fn in ipairs(self._unload) do pcall(fn) end
     for _, c in ipairs(self._conns) do c:Disconnect() end
+    if self._glassConn then self._glassConn:Disconnect() end
+    if self._glassFx then self._glassFx.blur:Destroy() end
     for _, flag in ipairs(self._flags) do Library.Flags[flag] = nil end
     local i = table.find(Library.Windows, self)
     if i then table.remove(Library.Windows, i) end
@@ -4459,6 +4697,17 @@ function WindowMT:CreateSettingsTab(name, icon)
             end)
         end,
     })
+    local gl, bl = look:AddColumns(2)
+    gl:AddToggle({
+        Name = "Glass", Default = win._glass == true,
+        Tooltip = "Estilo cristal: ventana translúcida con bordes de luz",
+        Callback = function(v) win:SetGlass(v, true) end,
+    })
+    bl:AddToggle({
+        Name = "Blur", Default = win._blurOn ~= false,
+        Tooltip = "Desenfoca el juego detrás de la ventana (solo con Glass; necesita gráficos altos)",
+        Callback = function(v) win:SetBlur(v, true) end,
+    })
 
     ----------------------------------------------------------------
     -- Interfaz
@@ -4642,6 +4891,978 @@ function WindowMT:CreateSettingsTab(name, icon)
         if not win._destroyed then win:LoadAutoloadConfig() end
     end)
     return tab
+end
+
+----------------------------------------------------------------
+-- Ventana de lista de cristal: un panel compacto con filas (puesto, icono, nombre, etiqueta,
+-- valor, tiempo restante y boton), barra de controles flotante, estado abajo y burbuja con el
+-- logo para mostrar/ocultar. Pensada para finders, rankings, servidores, logs...
+----------------------------------------------------------------
+local ListMT = {}
+ListMT.__index = ListMT
+Library.ListPresets = {
+    rgb(245, 194, 12), rgb(232, 140, 70), rgb(255, 105, 140), rgb(170, 120, 255),
+    rgb(98, 146, 255), rgb(64, 200, 230), rgb(120, 214, 140),
+}
+local MONO = tryFont("RobotoMono") or Enum.Font.Code
+local WHITE = rgb(255, 255, 255)
+
+local function fmtClock(s)
+    s = math.max(0, math.floor(tonumber(s) or 0))
+    if s >= 3600 then return string.format("%dh %02dm", s // 3600, (s % 3600) // 60) end
+    if s >= 60 then return string.format("%dm %02ds", s // 60, s % 60) end
+    return string.format("%ds", s)
+end
+Library.FormatTime = fmtClock
+
+local KIND_COLOR = { good = "Success", success = "Success", warn = "Warning", warning = "Warning",
+    bad = "Error", error = "Error", info = "Accent" }
+local function kindColor(kind)
+    return Theme[KIND_COLOR[string.lower(tostring(kind or "info"))] or "Accent"] or Theme.Accent
+end
+
+-- Presion liquida: el objeto se aplasta y rebota como una gota (cambia su tamano en offset)
+local function liquid(b, w, h)
+    local base, grown = UDim2.fromOffset(w, h), UDim2.fromOffset(w + 4, h + 2)
+    local over = false
+    b.MouseEnter:Connect(function()
+        over = true
+        tween(b, { Size = grown }, 0.35, Enum.EasingStyle.Back)
+    end)
+    b.MouseLeave:Connect(function()
+        over = false
+        tween(b, { Size = base }, 0.6, Enum.EasingStyle.Elastic)
+    end)
+    b.InputBegan:Connect(function(i)
+        if isPress(i) then tween(b, { Size = UDim2.fromOffset(w + 10, h - 5) }, 0.1, Enum.EasingStyle.Quad) end
+    end)
+    b.InputEnded:Connect(function(i)
+        if isPress(i) then tween(b, { Size = over and grown or base }, 0.7, Enum.EasingStyle.Elastic) end
+    end)
+end
+
+function Library:CreateListWindow(o)
+    o = o or {}
+    local L = setmetatable({}, ListMT)
+    local W, H = o.Width or 680, o.Height or 560
+    local R = o.Corner or 20
+    local HEADER_H, COLS_H, FOOTER_H, ROW_H = 60, 30, 42, o.RowHeight or 66
+    local TOUCH = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+    local BTN = TOUCH and 36 or 30
+    local cols = o.Columns or {}
+    local folder = o.ConfigFolder or "CookiesHub"
+    local statePath = folder .. "/_list_" .. tostring(o.Name or "window"):gsub("%W", "") .. ".txt"
+    local saved = (hasFS and o.RememberSettings ~= false) and readJSON(statePath) or {}
+    local set = {
+        opacity = math.clamp(tonumber(saved.opacity) or o.Opacity or 0.72, 0.35, 1),
+        blur = saved.blur == nil and o.Blur ~= false or saved.blur == true,
+    }
+    if type(saved.accent) == "string" then
+        local r, g, b = saved.accent:match("^#?(%x%x)(%x%x)(%x%x)$")
+        if r then Library:SetAccent(rgb(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))) end
+    end
+    local function save()
+        if not hasFS or o.RememberSettings == false then return end
+        if ensureFolder(folder) then
+            writeJSON(statePath, { opacity = set.opacity, blur = set.blur, accent = toHex(Theme.Accent) })
+        end
+    end
+
+    L.Active, L.Visible, L.Minimized, L.Auto = true, true, false, o.Auto ~= false and (o.AutoDefault ~= false)
+    L._conns, L._unload, L._cards, L._order, L._skeletons = {}, {}, {}, {}, {}
+    L.ToggleKey = o.ToggleKey or Enum.KeyCode.RightControl
+
+    local parent = PlayerGui
+    pcall(function() if typeof(gethui) == "function" then parent = gethui() end end)
+    local guiName = "CookiesList_" .. tostring(o.Name or "window"):gsub("%W", "")
+    local old = parent:FindFirstChild(guiName)
+    if old then old:Destroy() end
+    local gui = create("ScreenGui", {
+        Name = guiName, ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = o.DisplayOrder or 60,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    })
+    if not pcall(function() gui.Parent = parent end) then gui.Parent = PlayerGui end
+    L.Gui = gui
+
+    -- holder: posicion y tamano (arrastre, minimizar) · stage: escala de entrada · root: el vidrio
+    -- holder se ancla arriba: al minimizar solo cambia la altura y la cabecera no se mueve
+    local holder = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.5, -H / 2 + 14),
+        Size = UDim2.fromOffset(W, H), BackgroundTransparency = 1, Parent = gui,
+    })
+    local fitScale = create("UIScale", { Parent = holder })
+    local stage = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+        Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Parent = holder,
+    })
+    local stageScale = create("UIScale", { Scale = 0.94, Parent = stage })
+    create("ImageLabel", {
+        Image = "rbxassetid://6014261993", ImageColor3 = rgb(0, 0, 0), ImageTransparency = 0.4,
+        ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(49, 49, 450, 450),
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 8),
+        Size = UDim2.new(1, 50, 1, 50), ThemeIgnore = true, Parent = stage,
+    })
+    local root = create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Background,
+        BackgroundTransparency = 1 - set.opacity, ClipsDescendants = true, Parent = stage,
+    }, { corner(R) })
+    GlassFX.tint(root, R, Theme.Accent, 0.2, 0)
+    GlassFX.sheen(root, R, 0.7, 180, 0)
+    GlassFX.rim(root, 1, 1.5)
+    -- segundo borde interior: da la sensacion de grosor del vidrio
+    create("Frame", {
+        Position = UDim2.fromOffset(1, 1), Size = UDim2.new(1, -2, 1, -2), BackgroundTransparency = 1, ZIndex = 3,
+        Parent = root,
+    }, { corner(R - 1), create("UIStroke", { Color = WHITE, Transparency = 0.93, Thickness = 1, ThemeIgnore = true }) })
+    L._root, L._holder = root, holder
+    L._blur = GlassFX.blur(root, function()
+        return L.Visible and set.blur and holder.Visible
+    end, function(as) return R * 0.55 * as.X / W end)
+
+    ------------------------------------------------------------ header
+    local header = create("Frame", { Size = UDim2.new(1, 0, 0, HEADER_H), BackgroundTransparency = 1, ZIndex = 4, Parent = root })
+    local titleRow = create("Frame", {
+        Position = UDim2.fromOffset(18, 0), Size = UDim2.new(0, 360, 1, 0), BackgroundTransparency = 1, ZIndex = 4,
+        Parent = header,
+    }, { listLayout(9, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center }) })
+    local logo = o.Logo == nil and DEFAULT_LOGO or o.Logo
+    if logo then
+        create("ImageLabel", { Image = logo, Size = UDim2.fromOffset(28, 28), ScaleType = Enum.ScaleType.Fit,
+            LayoutOrder = 0, ZIndex = 4, Parent = titleRow })
+    end
+    local function titleText(t)
+        t = tostring(t or "Cookies Hub")
+        local a, b = t:match("^(%S+)%s+(.+)$")
+        if not a then return "<b>" .. t .. "</b>" end
+        return string.format('<b>%s</b> <font color="%s">%s</font>', a, toHex(Theme.Muted), b)
+    end
+    local titleLbl = label({
+        Text = titleText(o.Title), RichText = true, Font = Fonts.Body, TextSize = 18, LayoutOrder = 1, ZIndex = 4,
+        AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 22), TextTruncate = Enum.TextTruncate.None,
+        Parent = titleRow,
+    })
+    L._titleRaw = o.Title
+    local badgeDot, badgeLbl, badge
+    if o.Badge ~= false then
+        badge = create("Frame", {
+            AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 22), LayoutOrder = 2, ZIndex = 4,
+            BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.78, Parent = titleRow,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), padding(9, 0, 10, 0),
+            listLayout(6, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center }) })
+        GlassFX.rim(badge, 0.6, 1, header)
+        badgeDot = create("Frame", { Size = UDim2.fromOffset(6, 6), BackgroundColor3 = Theme.AccentHi, LayoutOrder = 1,
+            ZIndex = 4, Parent = badge }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        badgeLbl = label({ Text = tostring(o.Badge or "LIVE"), Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.AccentHi,
+            AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 22), LayoutOrder = 2, ZIndex = 4,
+            TextTruncate = Enum.TextTruncate.None, Parent = badge })
+    end
+
+    -- capsula flotante de controles
+    local CTRL_H = BTN + 10
+    local controls = create("Frame", {
+        AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, CTRL_H), BackgroundColor3 = WHITE, BackgroundTransparency = 0.94, ZIndex = 4,
+        ThemeIgnore = true, Parent = header,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), padding(4, 0, 4, 0),
+        listLayout(0, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center }) })
+    GlassFX.rim(controls, 0.75, 1, header)
+    local function slot(order, w)
+        return create("Frame", { LayoutOrder = order, Size = UDim2.fromOffset(w, CTRL_H), BackgroundTransparency = 1,
+            ZIndex = 4, Parent = controls })
+    end
+    -- boton redondo con glifo dibujado con frames (los glifos de texto no existen en todas las fuentes)
+    local function iconButton(order, draw, hoverColor)
+        local b = create("TextButton", {
+            Text = "", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(BTN, BTN), BackgroundColor3 = WHITE, BackgroundTransparency = 1, ZIndex = 5,
+            ThemeIgnore = true, Parent = slot(order, BTN + 4),
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        local glyph = create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(18, 18),
+            BackgroundTransparency = 1, ZIndex = 6, Parent = b,
+        })
+        local parts = draw(glyph)
+        local function paint(c, t)
+            for _, p in ipairs(parts) do
+                if p:IsA("UIStroke") then tween(p, { Color = c }, t) else tween(p, { BackgroundColor3 = c }, t) end
+            end
+        end
+        paint(Theme.Muted, 0)
+        liquid(b, BTN, BTN)
+        b.MouseEnter:Connect(function()
+            tween(b, { BackgroundTransparency = 0.88 }, 0.15)
+            paint(hoverColor and hoverColor() or Theme.Text, 0.15)
+        end)
+        b.MouseLeave:Connect(function()
+            tween(b, { BackgroundTransparency = 1 }, 0.2)
+            paint(Theme.Muted, 0.2)
+        end)
+        return b, glyph, paint
+    end
+    local function bar(parent, w, h, rot, x, y)
+        return create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, x or 0, 0.5, y or 0),
+            Size = UDim2.fromOffset(w, h), Rotation = rot or 0, BackgroundColor3 = Theme.Muted, ZIndex = 7,
+            ThemeIgnore = true, Parent = parent,
+        }, { corner(1) })
+    end
+    local function ring(parent, size, thick, gap)
+        local f = create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(size, size),
+            BackgroundTransparency = 1, ZIndex = 7, Parent = parent,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        local st = create("UIStroke", { Color = Theme.Muted, Thickness = thick, ThemeIgnore = true, Parent = f })
+        if gap then
+            create("UIGradient", { Rotation = 0, Transparency = nseq({ { 0, 0 }, { 0.62, 0 }, { 0.63, 1 }, { 1, 1 } }), Parent = st })
+        end
+        return f, st
+    end
+
+    -- interruptor Auto
+    local autoBtn, autoTrack, autoKnob, autoLbl
+    if o.Auto ~= false then
+        local s = slot(1, 84)
+        autoBtn = create("TextButton", {
+            Text = "", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(78, BTN), BackgroundColor3 = WHITE, BackgroundTransparency = 1, ZIndex = 5,
+            ThemeIgnore = true, Parent = s,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        autoLbl = label({ Text = tostring(o.AutoText or "Auto"), TextSize = 13, TextColor3 = Theme.Muted, ZIndex = 6,
+            Position = UDim2.fromOffset(11, 0), Size = UDim2.new(0, 34, 1, 0), Parent = autoBtn })
+        autoTrack = create("Frame", {
+            AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(32, 18),
+            BackgroundColor3 = Theme.Accent, ZIndex = 6, Parent = autoBtn,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        GlassFX.rim(autoTrack, 0.55, 1, header)
+        autoKnob = create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 23, 0.5, 0), Size = UDim2.fromOffset(14, 14),
+            BackgroundColor3 = WHITE, ZIndex = 7, ThemeIgnore = true, Parent = autoTrack,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        autoBtn.MouseEnter:Connect(function() tween(autoBtn, { BackgroundTransparency = 0.88 }, 0.15) end)
+        autoBtn.MouseLeave:Connect(function() tween(autoBtn, { BackgroundTransparency = 1 }, 0.2) end)
+        liquid(autoBtn, 78, BTN)
+        create("Frame", { LayoutOrder = 2, Size = UDim2.fromOffset(1, 18), BackgroundColor3 = WHITE,
+            BackgroundTransparency = 0.86, ThemeIgnore = true, Parent = controls })
+    end
+    -- la bolita se estira mientras viaja y recupera su forma al llegar
+    local function paintAuto(animate)
+        if not autoTrack then return end
+        local on = L.Auto
+        local t = animate and 1 or 0
+        tween(autoKnob, { Size = UDim2.fromOffset(21, 13) }, 0.12 * t, Enum.EasingStyle.Quad)
+        tween(autoKnob, { Position = UDim2.new(0, on and 23 or 9, 0.5, 0) }, 0.3 * t)
+        task.delay(0.12 * t, function()
+            tween(autoKnob, { Size = UDim2.fromOffset(14, 14) }, 0.55 * t, Enum.EasingStyle.Elastic)
+        end)
+        tween(autoTrack, { BackgroundColor3 = on and Theme.Accent or WHITE, BackgroundTransparency = on and 0 or 0.82 }, 0.25 * t)
+        tween(autoLbl, { TextColor3 = on and Theme.Text or Theme.Muted }, 0.25 * t)
+    end
+    paintAuto(false)
+
+    local gearBtn = iconButton(3, function(g)
+        local parts = {}
+        for i = 0, 7 do
+            local a = math.rad(i * 45)
+            table.insert(parts, bar(g, 5, 4, i * 45, math.cos(a) * 7, math.sin(a) * 7))
+        end
+        local _, st = ring(g, 10, 2.5)
+        table.insert(parts, st)
+        return parts
+    end)
+    local refreshBtn, refreshGlyph
+    if o.OnRefresh then
+        refreshBtn, refreshGlyph = iconButton(4, function(g)
+            local _, st = ring(g, 13, 2, true)
+            local tip = bar(g, 6, 2, 45, 5, -6)
+            local tip2 = bar(g, 6, 2, -45, 5, -2)
+            return { st, tip, tip2 }
+        end)
+    end
+    local minBtn = iconButton(5, function(g) return { bar(g, 11, 2) } end)
+    local minGlyph2 = nil
+    local closeBtn = iconButton(6, function(g) return { bar(g, 13, 2, 45), bar(g, 13, 2, -45) } end,
+        function() return Theme.Error end)
+
+    ------------------------------------------------------------ columnas
+    local NAME_X = 98
+    local VAL_R, VAL_W = 196, 118
+    local TIME_R, TIME_W = 116, 70
+    local colBar = create("Frame", { Position = UDim2.fromOffset(0, HEADER_H), Size = UDim2.new(1, 0, 0, COLS_H),
+        BackgroundTransparency = 1, ZIndex = 4, Parent = root })
+    create("Frame", { Position = UDim2.new(0, 18, 1, -1), Size = UDim2.new(1, -36, 0, 1), BackgroundColor3 = WHITE,
+        BackgroundTransparency = 0.88, ThemeIgnore = true, ZIndex = 4, Parent = colBar })
+    local function colLabel(t, props)
+        local p = { Text = t, TextSize = 11, Font = Fonts.Bold, TextColor3 = Theme.Dim, ZIndex = 4,
+            Size = UDim2.fromOffset(120, COLS_H), Parent = colBar }
+        for k, v in pairs(props) do p[k] = v end
+        return label(p)
+    end
+    colLabel(cols.Rank or "#", { Position = UDim2.fromOffset(20, 0), Size = UDim2.fromOffset(26, COLS_H) })
+    colLabel(cols.Name or "Name", { Position = UDim2.fromOffset(NAME_X, 0) })
+    if cols.Value ~= false then
+        colLabel(cols.Value or "Value", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -VAL_R, 0, 0),
+            Size = UDim2.fromOffset(VAL_W, COLS_H), TextXAlignment = Enum.TextXAlignment.Right })
+    end
+    if cols.Timer ~= false then
+        colLabel(cols.Timer or "Time", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -TIME_R, 0, 0),
+            Size = UDim2.fromOffset(TIME_W, COLS_H), TextXAlignment = Enum.TextXAlignment.Right })
+    end
+
+    ------------------------------------------------------------ lista
+    local list = create("ScrollingFrame", {
+        Position = UDim2.fromOffset(0, HEADER_H + COLS_H), Size = UDim2.new(1, 0, 1, -(HEADER_H + COLS_H + FOOTER_H)),
+        BackgroundTransparency = 1, CanvasSize = UDim2.new(), ScrollBarThickness = 3, ScrollBarImageColor3 = WHITE,
+        ScrollBarImageTransparency = 0.7, ScrollingDirection = Enum.ScrollingDirection.Y, ZIndex = 4,
+        ThemeIgnore = true, Parent = root,
+    })
+    local emptyWrap = create("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false,
+        ZIndex = 4, Parent = list })
+    local emptyLbl = label({ Text = tostring(o.EmptyText or "Nothing here yet"), TextColor3 = Theme.Muted, TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 4, Parent = emptyWrap })
+
+    ------------------------------------------------------------ footer
+    local footer = create("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1),
+        Size = UDim2.new(1, 0, 0, FOOTER_H), BackgroundTransparency = 1, ZIndex = 4, Parent = root })
+    create("Frame", { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(1, -36, 0, 1), BackgroundColor3 = WHITE,
+        BackgroundTransparency = 0.9, ThemeIgnore = true, ZIndex = 4, Parent = footer })
+    local progress = create("Frame", { Position = UDim2.fromOffset(18, 0), Size = UDim2.new(0, 0, 0, 1),
+        BackgroundColor3 = Theme.Accent, ZIndex = 5, Parent = footer })
+    local statusDot = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 20, 0.5, 0),
+        Size = UDim2.fromOffset(7, 7), BackgroundColor3 = Theme.Warning, ZIndex = 5, Parent = footer },
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local statusLbl = label({ Text = "Connecting…", TextSize = 12, TextColor3 = Theme.Muted, ZIndex = 5,
+        Position = UDim2.fromOffset(34, 0), Size = UDim2.new(0.45, -34, 1, 0), Parent = footer })
+    local hint = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -18, 0.5, 0),
+        AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 20), BackgroundTransparency = 1, ZIndex = 5,
+        Parent = footer }, { listLayout(5, { FillDirection = Enum.FillDirection.Horizontal,
+        VerticalAlignment = Enum.VerticalAlignment.Center, HorizontalAlignment = Enum.HorizontalAlignment.Right }) })
+    local keyPill = create("Frame", { AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 18), LayoutOrder = 1,
+        BackgroundColor3 = WHITE, BackgroundTransparency = 0.92, ThemeIgnore = true, ZIndex = 5, Parent = hint },
+        { corner(5), padding(6, 0, 6, 0) })
+    local keyLbl = label({ Text = keyName(L.ToggleKey), Font = MONO, TextSize = 10, TextColor3 = Theme.Muted, ZIndex = 6,
+        AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 18), TextTruncate = Enum.TextTruncate.None,
+        Parent = keyPill })
+    label({ Text = tostring(o.HideText or "hide"), TextSize = 11, TextColor3 = Theme.Dim, ZIndex = 5, LayoutOrder = 2,
+        AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 18), TextTruncate = Enum.TextTruncate.None,
+        Parent = hint })
+    if TOUCH then hint.Visible = false end
+    local metaLbl = label({ Text = "", Font = MONO, TextSize = 10, TextColor3 = Theme.Dim, ZIndex = 5,
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, TOUCH and -18 or -110, 0, 0),
+        Size = UDim2.new(0.5, -60, 1, 0), TextXAlignment = Enum.TextXAlignment.Right, Parent = footer })
+
+    ------------------------------------------------------------ toast
+    local toastFrame = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -FOOTER_H - 8),
+        AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 32), BackgroundColor3 = Theme.Background,
+        BackgroundTransparency = 0.12, Visible = false, ZIndex = 30, Parent = root,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), padding(12, 0, 14, 0),
+        listLayout(8, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center }) })
+    GlassFX.rim(toastFrame, 0.8, 1)
+    local toastDot = create("Frame", { Size = UDim2.fromOffset(7, 7), BackgroundColor3 = Theme.Accent, LayoutOrder = 1,
+        ZIndex = 31, Parent = toastFrame }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local toastLbl = label({ Text = "", TextSize = 13, ZIndex = 31, LayoutOrder = 2, AutomaticSize = Enum.AutomaticSize.X,
+        Size = UDim2.fromOffset(0, 32), TextTruncate = Enum.TextTruncate.None, Parent = toastFrame })
+    local toastScale = create("UIScale", { Parent = toastFrame })
+    local toastToken = 0
+    function L:Toast(text, kind, duration)
+        toastToken = toastToken + 1
+        local tok = toastToken
+        toastLbl.Text = tostring(text)
+        toastDot.BackgroundColor3 = kindColor(kind)
+        toastFrame.Visible = true
+        toastScale.Scale = 0.85
+        tween(toastScale, { Scale = 1 }, 0.4, Enum.EasingStyle.Back)
+        task.delay(duration or 2.6, function()
+            if tok ~= toastToken then return end
+            tweenThen(toastScale, { Scale = 0.85 }, 0.15, function()
+                if tok == toastToken then toastFrame.Visible = false end
+            end, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end)
+    end
+
+    ------------------------------------------------------------ filas
+    local function rowPosition(i) return UDim2.fromOffset(12, 6 + (i - 1) * ROW_H) end
+    local JOIN_W, JOIN_H = 76, TOUCH and 34 or 30
+
+    local function styleButton(card)
+        local s, b = card.state, card.btn
+        if s == "primary" then
+            b.BackgroundColor3 = card.hover and Theme.AccentHi or Theme.Accent
+            b.BackgroundTransparency = 0
+            card.btnText.TextColor3 = Theme.OnAccent
+            card.btnGrad.Enabled = true
+        elseif s == "disabled" or s == "busy" then
+            b.BackgroundColor3 = WHITE
+            b.BackgroundTransparency = 0.95
+            card.btnText.TextColor3 = Theme.Dim
+            card.btnGrad.Enabled = false
+        else
+            b.BackgroundColor3 = WHITE
+            b.BackgroundTransparency = card.hover and 0.84 or 0.91
+            card.btnText.TextColor3 = Theme.Text
+            card.btnGrad.Enabled = false
+        end
+        b.Active = s ~= "disabled" and s ~= "busy"
+        b.AutoButtonColor = false
+    end
+
+    local function createCard()
+        local card = { state = "ghost", life = 0 }
+        local f = create("Frame", {
+            Size = UDim2.new(1, -24, 0, ROW_H - 6), BackgroundColor3 = WHITE, BackgroundTransparency = 0.955,
+            ZIndex = 5, ThemeIgnore = true, Parent = list,
+        }, { corner(14) })
+        GlassFX.rim(f, 0.32, 1, f)
+        card.frame = f
+        card.rank = label({ Text = "01", Font = MONO, TextSize = 11, TextColor3 = Theme.Dim, ZIndex = 6,
+            Position = UDim2.fromOffset(10, 0), Size = UDim2.new(0, 26, 1, 0), Parent = f })
+        local iconBox = create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 38, 0.5, 0),
+            Size = UDim2.fromOffset(40, 40), BackgroundColor3 = WHITE, BackgroundTransparency = 0.92, ZIndex = 6,
+            ThemeIgnore = true, Parent = f }, { corner(11) })
+        GlassFX.rim(iconBox, 0.35, 1, f)
+        card.icon = create("ImageLabel", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(32, 32), ScaleType = Enum.ScaleType.Fit, ZIndex = 7, Parent = iconBox })
+        card.iconBox = iconBox
+        local nameArea = create("Frame", { Position = UDim2.fromOffset(NAME_X - 12, 0),
+            Size = UDim2.new(1, -(NAME_X - 12 + VAL_R + 10), 1, 0), BackgroundTransparency = 1, ClipsDescendants = true,
+            ZIndex = 6, Parent = f })
+        card.name = label({ Text = "", Font = Fonts.Bold, TextSize = 14, ZIndex = 6, Position = UDim2.fromOffset(0, 11),
+            Size = UDim2.new(1, 0, 0, 18), Parent = nameArea })
+        local sub = create("Frame", { Position = UDim2.fromOffset(0, 32), Size = UDim2.new(1, 0, 0, 16),
+            BackgroundTransparency = 1, ZIndex = 6, Parent = nameArea },
+            { listLayout(5, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center }) })
+        card.dot = create("Frame", { Size = UDim2.fromOffset(6, 6), BackgroundColor3 = Theme.Accent, LayoutOrder = 1,
+            ZIndex = 6, ThemeIgnore = true, Parent = sub }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        card.tag = label({ Text = "", Font = Fonts.Bold, TextSize = 11, ZIndex = 6, LayoutOrder = 2, ThemeIgnore = true,
+            AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 16), TextTruncate = Enum.TextTruncate.None,
+            Parent = sub })
+        card.info = label({ Text = "", RichText = true, TextSize = 11, TextColor3 = Theme.Muted, ZIndex = 6, LayoutOrder = 3,
+            AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 16), TextTruncate = Enum.TextTruncate.None,
+            Parent = sub })
+        card.value = label({ Text = "", Font = MONO, TextSize = 13, ZIndex = 6, AnchorPoint = Vector2.new(1, 0),
+            Position = UDim2.new(1, -(VAL_R - 12), 0, 10), Size = UDim2.fromOffset(VAL_W, 18),
+            TextXAlignment = Enum.TextXAlignment.Right, Parent = f })
+        card.sub = label({ Text = "", Font = MONO, TextSize = 10, TextColor3 = Theme.Dim, ZIndex = 6,
+            AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -(VAL_R - 12), 0, 32), Size = UDim2.fromOffset(VAL_W, 14),
+            TextXAlignment = Enum.TextXAlignment.Right, Parent = f })
+        card.time = label({ Text = "", Font = MONO, TextSize = 11, TextColor3 = Theme.Muted, ZIndex = 6,
+            AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -(TIME_R - 12), 0, 12), Size = UDim2.fromOffset(TIME_W, 16),
+            TextXAlignment = Enum.TextXAlignment.Right, Parent = f })
+        local lifeBg = create("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -(TIME_R - 12), 0, 36),
+            Size = UDim2.fromOffset(38, 3), BackgroundColor3 = WHITE, BackgroundTransparency = 0.88, ZIndex = 6,
+            ThemeIgnore = true, Parent = f }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        card.lifeFill = create("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 0.35,
+            ZIndex = 7, ThemeIgnore = true, Parent = lifeBg }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        card.lifeBg = lifeBg
+        if cols.Timer == false then card.time.Visible, lifeBg.Visible = false, false end
+        local btnSlot = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
+            Size = UDim2.fromOffset(JOIN_W + 10, JOIN_H + 6), BackgroundTransparency = 1, ZIndex = 6, Parent = f })
+        local b = create("TextButton", { Text = "", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(JOIN_W, JOIN_H), BackgroundColor3 = WHITE, BackgroundTransparency = 0.91, ZIndex = 7,
+            ThemeIgnore = true, Parent = btnSlot }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        card.btnGrad = sheen(b, 0.16)
+        card.btnGrad.Enabled = false
+        GlassFX.rim(b, 0.5, 1, f)
+        card.btnText = label({ Text = tostring(o.ButtonText or "Join"), Font = Fonts.Bold, TextSize = 12, ZIndex = 8,
+            TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ThemeIgnore = true, Parent = b })
+        card.btn, card.btnSlot = b, btnSlot
+        liquid(b, JOIN_W, JOIN_H)
+        b.MouseEnter:Connect(function() card.hover = true styleButton(card) end)
+        b.MouseLeave:Connect(function() card.hover = false styleButton(card) end)
+        b.Activated:Connect(function()
+            if not b.Active or not card.item then return end
+            if o.OnAction then task.spawn(o.OnAction, card.item, card.api) end
+        end)
+        f.MouseEnter:Connect(function() tween(f, { BackgroundTransparency = 0.925 }, 0.15) end)
+        f.MouseLeave:Connect(function() tween(f, { BackgroundTransparency = 0.955 }, 0.2) end)
+        card.api = {
+            SetButton = function(_, text, state)
+                if text then card.btnText.Text = tostring(text) end
+                if state then card.state = state card.locked = state == "busy" or state == "disabled" end
+                styleButton(card)
+            end,
+            Unlock = function() card.locked = false end,
+            Frame = f,
+        }
+        styleButton(card)
+        return card
+    end
+
+    local function updateCard(card, item, index)
+        card.item = item
+        card.rank.Text = string.format("%02d", index)
+        card.rank.TextColor3 = index == 1 and Theme.AccentHi or Theme.Dim
+        card.icon.Image = tostring(item.Icon or "")
+        card.iconBox.Visible = item.Icon ~= nil and item.Icon ~= ""
+        card.name.Text = tostring(item.Title or "?")
+        local tc = item.TagColor or Theme.Accent
+        card.dot.BackgroundColor3, card.tag.TextColor3 = tc, tc
+        card.dot.Visible = item.Tag ~= nil
+        card.tag.Text = tostring(item.Tag or "")
+        card.info.Text = item.Info and ("· " .. tostring(item.Info)) or ""
+        card.value.Text = tostring(item.Value or "")
+        card.sub.Text = tostring(item.SubValue or "")
+        if item.Expires then
+            local rem = math.max(0, tonumber(item.Expires) or 0)
+            card.expiresAt = os.clock() + rem
+            card.life = math.max(card.life, rem)
+            if rem > 0 then
+                card.time.Text = fmtClock(rem)
+                -- una fila que expiro y vuelve con tiempo nuevo se desbloquea
+                if card.expiredLock then card.locked, card.expiredLock = false, false end
+            end
+        else
+            card.expiresAt = nil
+            card.time.Text = tostring(item.Time or "")
+            card.lifeBg.Visible = false
+        end
+        card.btnSlot.Visible = item.Button ~= false
+        if not card.locked or item.ButtonState then
+            card.locked = false
+            local st = item.ButtonState or (index == 1 and "primary" or "ghost")
+            card.state = st
+            card.btnText.Text = tostring(type(item.Button) == "string" and item.Button or o.ButtonText or "Join")
+            card.locked = st == "disabled"
+            styleButton(card)
+        end
+    end
+
+    local function layout()
+        for i, key in ipairs(L._order) do
+            local card = L._cards[key]
+            if card and card.frame.Parent then
+                local target = rowPosition(i)
+                if card.enterDelay then
+                    local d = card.enterDelay
+                    card.enterDelay = nil
+                    card.frame.Visible = false
+                    task.delay(d, function()
+                        if not card.frame.Parent then return end
+                        local idx = table.find(L._order, key)
+                        if not idx then return end
+                        local t = rowPosition(idx)
+                        card.frame.Position = t + UDim2.fromOffset(0, 12)
+                        card.frame.BackgroundTransparency = 1
+                        card.frame.Visible = true
+                        tween(card.frame, { Position = t, BackgroundTransparency = 0.955 }, 0.45, Enum.EasingStyle.Back)
+                    end)
+                else
+                    tween(card.frame, { Position = target }, 0.4)
+                end
+            end
+        end
+        list.CanvasSize = UDim2.fromOffset(0, #L._order * ROW_H + 12)
+    end
+
+    local function clearSkeletons()
+        for _, s in ipairs(L._skeletons) do
+            local f = s
+            tweenThen(f, { BackgroundTransparency = 1 }, 0.15, function() f:Destroy() end)
+        end
+        L._skeletons = {}
+    end
+
+    -- filas fantasma con brillo mientras carga la primera vez
+    function L:SetLoading(on)
+        clearSkeletons()
+        if not on then return end
+        for i = 1, 5 do
+            local f = create("Frame", { Position = rowPosition(i), Size = UDim2.new(1, -24, 0, ROW_H - 6),
+                BackgroundColor3 = WHITE, BackgroundTransparency = 0.955, ZIndex = 5, ThemeIgnore = true, Parent = list },
+                { corner(14) })
+            local shine = create("UIGradient", { Transparency = nseq({ { 0, 1 }, { 0.45, 1 }, { 0.5, 0.6 }, { 0.55, 1 }, { 1, 1 } }),
+                Offset = Vector2.new(-1, 0), Parent = f })
+            task.spawn(function()
+                while f.Parent do
+                    shine.Offset = Vector2.new(-1, 0)
+                    local tw = TweenService:Create(shine, TweenInfo.new(1.2, Enum.EasingStyle.Sine), { Offset = Vector2.new(1, 0) })
+                    tw:Play()
+                    task.wait(1.2 + i * 0.05)
+                end
+            end)
+            table.insert(L._skeletons, f)
+        end
+    end
+
+    -- items: { Key, Icon, Title, Tag, TagColor, Info (RichText), Value, SubValue, Expires (s), Time,
+    --          Button (texto o false), ButtonState ("primary" | "ghost" | "disabled"), ... tus datos }
+    function L:SetItems(items)
+        clearSkeletons()
+        local seen, newOrder, stagger = {}, {}, 0
+        for i, item in ipairs(items or {}) do
+            local key = tostring(item.Key or i)
+            if not seen[key] then
+                seen[key] = true
+                table.insert(newOrder, key)
+                local card = L._cards[key]
+                if not card then
+                    card = createCard()
+                    L._cards[key] = card
+                    card.frame.Position = rowPosition(#newOrder)
+                    card.enterDelay = 0.08 + math.min(stagger * 0.04, 0.45)
+                    stagger = stagger + 1
+                end
+                updateCard(card, item, #newOrder)
+            end
+        end
+        for key, card in pairs(L._cards) do
+            if not seen[key] then
+                L._cards[key] = nil
+                local f = card.frame
+                tweenThen(f, { BackgroundTransparency = 1, Position = f.Position + UDim2.fromOffset(16, 0) }, 0.2, function()
+                    f:Destroy()
+                end)
+            end
+        end
+        L._order = newOrder
+        emptyWrap.Visible = #newOrder == 0 and not L.Minimized
+        layout()
+    end
+    function L:GetRow(key)
+        local c = L._cards[tostring(key)]
+        return c and c.api
+    end
+    function L:SetEmptyText(t) emptyLbl.Text = tostring(t) end
+
+    function L:SetStatus(text, kind)
+        statusLbl.Text = tostring(text)
+        tween(statusDot, { BackgroundColor3 = kindColor(kind) }, 0.2)
+    end
+    function L:SetMeta(text) metaLbl.Text = tostring(text or "") end
+    function L:SetTitle(t) L._titleRaw = t titleLbl.Text = titleText(t) end
+    function L:SetBadge(t)
+        if not badge then return end
+        badge.Visible = t ~= nil and t ~= false
+        if t then badgeLbl.Text = tostring(t) end
+    end
+    -- barra fina sobre el pie que se llena en `seconds` (cuenta atras del auto-refresco)
+    function L:Countdown(seconds)
+        progress.Size = UDim2.new(0, 0, 0, 1)
+        if seconds and seconds > 0 then
+            TweenService:Create(progress, TweenInfo.new(seconds, Enum.EasingStyle.Linear),
+                { Size = UDim2.new(1, -36, 0, 1) }):Play()
+        end
+    end
+    function L:Spin()
+        if refreshGlyph then
+            refreshGlyph.Rotation = 0
+            tweenThen(refreshGlyph, { Rotation = 360 }, 0.5, function() refreshGlyph.Rotation = 0 end)
+        end
+    end
+    function L:SetAuto(v, silent)
+        L.Auto = v and true or false
+        paintAuto(true)
+        if not silent and o.OnAuto then task.spawn(o.OnAuto, L.Auto) end
+    end
+
+    ------------------------------------------------------------ ajustes (engrane)
+    local pop = create("Frame", {
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, HEADER_H - 4), Size = UDim2.fromOffset(240, 214),
+        BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.08, Visible = false, ZIndex = 40, Parent = root,
+    }, { corner(16), padding(14, 12, 14, 12) })
+    GlassFX.rim(pop, 0.9, 1)
+    local popScale = create("UIScale", { Parent = pop })
+    local function popTitle(t, y)
+        label({ Text = t, Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(0, y),
+            Size = UDim2.new(1, 0, 0, 14), ZIndex = 41, Parent = pop })
+    end
+    popTitle("OPACITY", 0)
+    local opVal = label({ Text = "", Font = MONO, TextSize = 11, TextColor3 = Theme.Muted, AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, 0, 0, 0), Size = UDim2.fromOffset(50, 14), TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = 41, Parent = pop })
+    local opTrack = create("TextButton", { Text = "", Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 0, 6),
+        BackgroundColor3 = WHITE, BackgroundTransparency = 0.86, ZIndex = 41, ThemeIgnore = true, Parent = pop },
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local opFill = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, ZIndex = 42,
+        Parent = opTrack }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local opKnob = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5),
+        Size = UDim2.fromOffset(14, 14), BackgroundColor3 = WHITE, ZIndex = 43, ThemeIgnore = true, Parent = opTrack },
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local function setOpacity(v, persist)
+        set.opacity = math.clamp(v, 0.35, 1)
+        local a = (set.opacity - 0.35) / 0.65
+        opFill.Size = UDim2.fromScale(a, 1)
+        opKnob.Position = UDim2.fromScale(a, 0.5)
+        opVal.Text = string.format("%d%%", math.floor(set.opacity * 100 + 0.5))
+        root.BackgroundTransparency = 1 - set.opacity
+        if persist then save() end
+    end
+    setOpacity(set.opacity)
+    local sliding = false
+    local function slideTo(x)
+        local a = math.clamp((x - opTrack.AbsolutePosition.X) / math.max(opTrack.AbsoluteSize.X, 1), 0, 1)
+        setOpacity(0.35 + a * 0.65)
+    end
+    opTrack.InputBegan:Connect(function(i)
+        if isPress(i) then sliding = true slideTo(i.Position.X) end
+    end)
+    table.insert(L._conns, UserInputService.InputChanged:Connect(function(i)
+        if sliding and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            slideTo(i.Position.X)
+        end
+    end))
+    table.insert(L._conns, UserInputService.InputEnded:Connect(function(i)
+        if sliding and isPress(i) then sliding = false save() end
+    end))
+
+    popTitle("ACCENT", 52)
+    local swRow = create("Frame", { Position = UDim2.fromOffset(0, 72), Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1,
+        ZIndex = 41, Parent = pop }, { listLayout(6, { FillDirection = Enum.FillDirection.Horizontal }) })
+    local swatches = {}
+    local function paintSwatches()
+        for _, s in ipairs(swatches) do
+            tween(s.st, { Transparency = s.c == Theme.Accent and 0 or 1 }, 0.15)
+        end
+    end
+    for i, c in ipairs(o.Accents or Library.ListPresets) do
+        local b = create("TextButton", { Text = "", Size = UDim2.fromOffset(24, 24), BackgroundColor3 = c, LayoutOrder = i,
+            ZIndex = 42, ThemeIgnore = true, Parent = swRow }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        local st = create("UIStroke", { Color = WHITE, Thickness = 2, Transparency = 1, ThemeIgnore = true, Parent = b })
+        table.insert(swatches, { c = c, st = st })
+        pressFx(b, nil, 0.85)
+        b.Activated:Connect(function()
+            -- repinta aunque no haya ventanas normales abiertas (SetAccent solo repinta si las hay)
+            applyTheme({ Accent = c })
+            repaintAll()
+            titleLbl.Text = titleText(L._titleRaw)
+            paintAuto(false)
+            for _, card in pairs(L._cards) do styleButton(card) end
+            paintSwatches()
+            save()
+        end)
+    end
+    paintSwatches()
+
+    popTitle("BACKGROUND BLUR", 112)
+    local blurBtn = create("TextButton", { Text = "", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, 0, 0, 108),
+        Size = UDim2.fromOffset(36, 20), BackgroundColor3 = Theme.Accent, ZIndex = 42, Parent = pop },
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local blurKnob = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14),
+        BackgroundColor3 = WHITE, ZIndex = 43, ThemeIgnore = true, Parent = blurBtn },
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local function paintBlur(t)
+        tween(blurKnob, { Position = UDim2.new(0, set.blur and 26 or 10, 0.5, 0) }, t or 0.25, Enum.EasingStyle.Back)
+        tween(blurBtn, { BackgroundColor3 = set.blur and Theme.Accent or Theme.Row }, t or 0.2)
+    end
+    paintBlur(0)
+    blurBtn.Activated:Connect(function()
+        set.blur = not set.blur
+        paintBlur()
+        save()
+    end)
+    label({ Text = "Needs high graphics quality", TextSize = 10, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(0, 132),
+        Size = UDim2.new(1, 0, 0, 14), ZIndex = 41, Parent = pop })
+    local resetBtn = create("TextButton", { Text = "", Position = UDim2.new(0, 0, 1, -28), Size = UDim2.new(1, 0, 0, 28),
+        BackgroundColor3 = WHITE, BackgroundTransparency = 0.92, ZIndex = 42, ThemeIgnore = true, Parent = pop },
+        { corner(9) })
+    label({ Text = "Reset settings", TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1),
+        ZIndex = 43, Parent = resetBtn })
+    pressFx(resetBtn, nil, 0.96)
+    resetBtn.Activated:Connect(function()
+        set.blur = o.Blur ~= false
+        setOpacity(o.Opacity or 0.72)
+        paintBlur()
+        save()
+    end)
+
+    local popOpen = false
+    local function setPop(v)
+        if popOpen == v then return end
+        popOpen = v
+        if v then
+            pop.Visible = true
+            popScale.Scale = 0.88
+            tween(popScale, { Scale = 1 }, 0.4, Enum.EasingStyle.Back)
+        else
+            tweenThen(popScale, { Scale = 0.9 }, 0.12, function() if not popOpen then pop.Visible = false end end,
+                Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end
+    end
+    gearBtn.Activated:Connect(function() setPop(not popOpen) end)
+
+    ------------------------------------------------------------ visibilidad, minimizar, cerrar
+    local winH = H
+    local function setVisible(v)
+        L.Visible = v and true or false
+        if L.Visible then
+            holder.Visible = true
+            stageScale.Scale = 0.94
+            tween(stageScale, { Scale = 1 }, 0.45, Enum.EasingStyle.Back)
+        else
+            setPop(false)
+            tweenThen(stageScale, { Scale = 0.94 }, 0.15, function()
+                if not L.Visible then holder.Visible = false end
+            end, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end
+    end
+    function L:SetVisible(v) setVisible(v) end
+    function L:Toggle() setVisible(not L.Visible) end
+    function L:Minimize(v)
+        if v == nil then v = not L.Minimized end
+        L.Minimized = v and true or false
+        if L.Minimized then
+            setPop(false)
+            colBar.Visible, list.Visible, footer.Visible, emptyWrap.Visible = false, false, false, false
+            tween(holder, { Size = UDim2.fromOffset(W, HEADER_H) }, 0.5, Enum.EasingStyle.Back)
+        else
+            tween(holder, { Size = UDim2.fromOffset(W, winH) }, 0.55, Enum.EasingStyle.Back)
+            task.delay(0.15, function()
+                if L.Minimized then return end
+                colBar.Visible, list.Visible, footer.Visible = true, true, true
+                emptyWrap.Visible = #L._order == 0 and #L._skeletons == 0
+            end)
+        end
+    end
+    minBtn.Activated:Connect(function() L:Minimize() end)
+    closeBtn.Activated:Connect(function()
+        if o.CloseHides then setVisible(false) else L:Destroy() end
+    end)
+    if refreshBtn then
+        refreshBtn.Activated:Connect(function()
+            L:Spin()
+            task.spawn(o.OnRefresh)
+        end)
+    end
+    if autoBtn then
+        autoBtn.Activated:Connect(function() L:SetAuto(not L.Auto) end)
+    end
+    function L:SetToggleKey(k)
+        L.ToggleKey = k
+        keyLbl.Text = keyName(k)
+    end
+    table.insert(L._conns, UserInputService.InputBegan:Connect(function(i, gp)
+        if gp or i.KeyCode ~= L.ToggleKey then return end
+        setVisible(not L.Visible)
+    end))
+
+    -- arrastre suave desde la cabecera
+    local dragTarget
+    do
+        local dragging, startPos, startInput
+        header.InputBegan:Connect(function(i)
+            if not isPress(i) then return end
+            dragging, startPos, startInput = true, holder.Position, i.Position
+            setPop(false)
+        end)
+        table.insert(L._conns, UserInputService.InputChanged:Connect(function(i)
+            if not dragging then return end
+            if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            local d = i.Position - startInput
+            dragTarget = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end))
+        table.insert(L._conns, UserInputService.InputEnded:Connect(function(i)
+            if isPress(i) then dragging = false end
+        end))
+    end
+
+    -- burbuja con el logo: siempre a mano, arrastrable; un toque muestra u oculta la ventana
+    local bubble
+    if o.Bubble ~= false then
+        local BS = TOUCH and 56 or 48
+        bubble = create("TextButton", {
+            Text = "", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 20 + BS / 2, 0.42, 0),
+            Size = UDim2.fromOffset(BS, BS), BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.25,
+            ZIndex = 50, Parent = gui,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        GlassFX.rim(bubble, 1, 1.5)
+        GlassFX.sheen(bubble, "full", 0.6, nil, 50)
+        create("ImageLabel", { Image = logo or DEFAULT_LOGO, AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.62, 0.62), ScaleType = Enum.ScaleType.Fit,
+            ZIndex = 51, Parent = bubble })
+        liquid(bubble, BS, BS)
+        local moved, bStart, bInput, bDrag = false, nil, nil, false
+        bubble.InputBegan:Connect(function(i)
+            if not isPress(i) then return end
+            bDrag, moved, bStart, bInput = true, false, bubble.Position, i.Position
+        end)
+        table.insert(L._conns, UserInputService.InputChanged:Connect(function(i)
+            if not bDrag then return end
+            if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            local d = i.Position - bInput
+            if d.Magnitude > 6 then moved = true end
+            if moved then
+                bubble.Position = UDim2.new(bStart.X.Scale, bStart.X.Offset + d.X, bStart.Y.Scale, bStart.Y.Offset + d.Y)
+            end
+        end))
+        table.insert(L._conns, UserInputService.InputEnded:Connect(function(i)
+            if bDrag and isPress(i) then
+                bDrag = false
+                if not moved then setVisible(not L.Visible) end
+            end
+        end))
+    end
+
+    -- escala para que quepa en pantallas pequenas
+    local function applyScale()
+        local cam = workspace.CurrentCamera
+        local vp = gui.AbsoluteSize
+        if (vp.X < 50 or vp.Y < 50) and cam then vp = cam.ViewportSize end
+        fitScale.Scale = math.clamp(math.min((vp.X - 24) / W, (vp.Y - 24) / H, 1), 0.45, 1)
+    end
+    applyScale()
+    table.insert(L._conns, gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(applyScale))
+
+    -- pulso del badge, arrastre suavizado y reloj de cada fila
+    local clock = 0
+    table.insert(L._conns, RunService.RenderStepped:Connect(function(dt)
+        clock = clock + dt
+        if badgeDot then badgeDot.BackgroundTransparency = 0.5 - math.sin(clock * 3) * 0.5 end
+        if dragTarget then
+            local a = math.min(dt * 18, 1)
+            holder.Position = holder.Position:Lerp(dragTarget, a)
+            if (holder.Position.X.Offset - dragTarget.X.Offset) ^ 2 + (holder.Position.Y.Offset - dragTarget.Y.Offset) ^ 2 < 0.25 then
+                holder.Position, dragTarget = dragTarget, nil
+            end
+        end
+    end))
+    task.spawn(function()
+        while L.Active do
+            task.wait(1)
+            for _, card in pairs(L._cards) do
+                if card.expiresAt and card.frame.Parent then
+                    local rem = card.expiresAt - os.clock()
+                    if rem <= 0 then
+                        card.time.Text = tostring(o.ExpiredText or "Expired")
+                        card.time.TextColor3 = Theme.Dim
+                        tween(card.lifeFill, { Size = UDim2.fromScale(0, 1) }, 0.3)
+                        if not card.locked and o.DisableExpired ~= false then
+                            card.state, card.locked, card.expiredLock = "disabled", true, true
+                            card.btnText.Text = "—"
+                            styleButton(card)
+                        end
+                    else
+                        local urgent = rem < (o.UrgentTime or 20)
+                        card.time.Text = fmtClock(rem)
+                        card.time.TextColor3 = urgent and Theme.Warning or Theme.Muted
+                        card.lifeBg.Visible = true
+                        card.lifeFill.BackgroundColor3 = urgent and Theme.Warning or WHITE
+                        card.lifeFill.BackgroundTransparency = urgent and 0 or 0.35
+                        local frac = card.life > 0 and math.clamp(rem / card.life, 0, 1) or 1
+                        TweenService:Create(card.lifeFill, TweenInfo.new(1, Enum.EasingStyle.Linear),
+                            { Size = UDim2.fromScale(frac, 1) }):Play()
+                    end
+                end
+            end
+        end
+    end)
+
+    function L:OnUnload(fn) if type(fn) == "function" then table.insert(L._unload, fn) end end
+    function L:Destroy()
+        if not L.Active then return end
+        L.Active = false
+        for _, fn in ipairs(L._unload) do pcall(fn) end
+        for _, c in ipairs(L._conns) do c:Disconnect() end
+        L._blur:Destroy()
+        tween(stageScale, { Scale = 0.94 }, 0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        task.delay(0.2, function() gui:Destroy() end)
+    end
+    L.Unload = L.Destroy
+
+    -- entrada
+    if o.Loading ~= false then L:SetLoading(true) end
+    tween(stageScale, { Scale = 1 }, 0.55, Enum.EasingStyle.Back)
+    tween(holder, { Position = UDim2.new(0.5, 0, 0.5, -H * fitScale.Scale / 2) }, 0.4)
+    return L
 end
 
 Library.new = function(opts) return Library:CreateWindow(opts) end
