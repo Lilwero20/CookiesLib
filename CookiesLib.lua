@@ -117,6 +117,7 @@ Library.Config = {
         UIScale = 1,               -- escala extra elegida por el usuario (0.6 - 1.4)
         SearchShortcut = true,     -- Ctrl+F abre la busqueda global
         Style = "Default",         -- "Default" | "Glass" (vidrio translucido con bordes de luz)
+        Customizer = true,         -- boton en la barra para cambiar estilo, transparencia y colores
     },
     Tab = { Columns = 2, Padding = 12, Gap = 10, IconSize = 20, IconTint = true, SingleColumnBelow = 440 },
     Section = {
@@ -572,6 +573,7 @@ local function glassify(inst)
         apply()
         -- la luz del borde gira con el mouse, como en las tarjetas del finder
         st.grad = GlassFX.light(inst, 1)
+        st.grad.Enabled = GlassFX.Lights ~= false
         -- si la libreria vuelve a ponerle el color del tema (repintado), se reaplica el borde de luz
         st.conn = inst:GetPropertyChangedSignal("Color"):Connect(function()
             local k = surfKey(inst.Color, GLASS_STROKE)
@@ -583,6 +585,20 @@ local function glassify(inst)
     if not inst:IsA("GuiObject") or inst.ZIndex >= 40 then return end
     local key = surfKey(inst.BackgroundColor3, GLASS_SURF)
     if not key then return end
+    -- paneles que tapan a otros (busqueda): vidrio oscuro opaco para que no se vea lo de detras
+    if inst:GetAttribute("GlassSolid") then
+        local st = { key = key, t = inst.BackgroundTransparency, solid = true }
+        local function apply() inst.BackgroundColor3, inst.BackgroundTransparency = Theme.Background, 0 end
+        apply()
+        st.conn = inst:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+            if inst.BackgroundColor3 ~= Theme.Background and surfKey(inst.BackgroundColor3, GLASS_SURF) then apply() end
+        end)
+        glassState[inst] = st
+        return
+    end
+    -- semitransparentes a proposito (capa de "desactivado"): se dejan como estan
+    local bt = inst.BackgroundTransparency
+    if bt >= 0.05 and bt < 0.99 then return end
     local st = { key = key, t = inst.BackgroundTransparency }
     glassState[inst] = st
     -- los objetos ocultos (p.ej. botones que solo se ven con hover) se convierten cuando aparecen
@@ -1075,6 +1091,7 @@ function Library:CreateWindow(opts)
     end
 
     local nBtns = (W.Searchable ~= false and 1 or 0) + (W.Minimizable and 1 or 0) + (W.Closable and 1 or 0)
+        + (W.Customizer ~= false and 1 or 0)
     local btnsW = math.max(nBtns, 1) * 28 + math.max(nBtns - 1, 0) * 4
 
     local titleX = 14
@@ -1142,6 +1159,33 @@ function Library:CreateWindow(opts)
         searchBtn.MouseEnter:Connect(function() tween(searchBtn, { BackgroundTransparency = 0 }, 0.15) end)
         searchBtn.MouseLeave:Connect(function() tween(searchBtn, { BackgroundTransparency = 1 }, 0.15) end)
         pressFx(searchBtn, nil, 0.9)
+    end
+    -- boton de personalizar (icono de deslizadores): abre el panel de estilo, transparencia y color
+    if W.Customizer ~= false then
+        local cb = create("TextButton", {
+            Text = "", Size = UDim2.fromOffset(28, 28), BackgroundTransparency = 1, BackgroundColor3 = Theme.Row,
+            LayoutOrder = -1, ZIndex = 7, Parent = btnHolder,
+        }, { corner(8) })
+        local parts = {}
+        for i, x in ipairs({ -3, 3 }) do
+            local y = i == 1 and -3 or 3
+            table.insert(parts, create("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, y), Size = UDim2.fromOffset(13, 2),
+                BackgroundColor3 = Theme.Muted, ZIndex = 8, Parent = cb,
+            }, { corner(1) }))
+            table.insert(parts, create("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, x, 0.5, y), Size = UDim2.fromOffset(6, 6),
+                BackgroundColor3 = Theme.Muted, ZIndex = 9, Parent = cb,
+            }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) }))
+        end
+        local function paint(c) for _, p in ipairs(parts) do tween(p, { BackgroundColor3 = c }, 0.15) end end
+        cb.MouseEnter:Connect(function() tween(cb, { BackgroundTransparency = 0 }, 0.15) paint(Theme.Text) end)
+        cb.MouseLeave:Connect(function()
+            tween(cb, { BackgroundTransparency = 1 }, 0.15)
+            paint(self._custOpen and Theme.Accent or Theme.Muted)
+        end)
+        pressFx(cb, nil, 0.9)
+        self._custBtn, self._custPaint = cb, paint
     end
     local minBtn = W.Minimizable and iconButton("min", 1, nil) or nil
     local closeBtn = W.Closable and iconButton("close", 2, rgb(110, 40, 36)) or nil
@@ -1318,6 +1362,8 @@ function Library:CreateWindow(opts)
             Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Panel, ZIndex = 20,
             Visible = false, GroupTransparency = 1, Active = true, Parent = content,
         }, { corner(10) })
+        -- en estilo Glass sigue siendo opaco: si no, las tabs de detras se ven a traves de la busqueda
+        searchPage:SetAttribute("GlassSolid", true)
         local barStroke = stroke(Theme.Stroke, 1, 0.3)
         local bar = create("Frame", {
             Position = UDim2.fromOffset(12, 12), Size = UDim2.new(1, -24, 0, 36),
@@ -1752,7 +1798,16 @@ function Library:CreateWindow(opts)
     end
     local glass = tostring(W.Style):lower() == "glass"
     if type(state.glass) == "boolean" then glass = state.glass end
-    if glass then self:SetGlass(true) end
+    if type(state.alpha) == "number" then self._alpha = math.clamp(state.alpha, 0, 0.6) end
+    if type(state.lights) == "boolean" then self._lights = state.lights end
+    if type(state.liquid) == "boolean" then self._liquidPref = state.liquid end
+    if glass then
+        self:SetGlass(true)
+    elseif self._alpha then
+        shell.BackgroundTransparency = self._alpha
+        GlassFX.Liquid = self._liquidPref == true
+    end
+    if self._custBtn then self:_buildCustomizer() end
     self._ready = true
     table.insert(Library.Windows, self)
 
@@ -2190,7 +2245,8 @@ function WindowMT:SetGlass(on, save)
         g.rimHost = create("Frame", {
             Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2, Parent = root,
         }, { corner(R) })
-        GlassFX.rim(g.rimHost, 1, 1.5)
+        g.rimStroke = GlassFX.rim(g.rimHost, 1, 1.5)
+        g.rimGrad = g.rimStroke:FindFirstChildOfClass("UIGradient")
         local bh = self._btnHolder
         if bh then
             g.capsule = create("Frame", {
@@ -2211,8 +2267,15 @@ function WindowMT:SetGlass(on, save)
         end
     end
     if on then
-        GlassFX.Liquid = true
+        GlassFX.Liquid = self._liquidPref ~= false
+        GlassFX.BackgroundAlpha = self._alpha or 0.14
+        GlassFX.Lights = self._lights ~= false
+        if self._shell then self._shell.BackgroundTransparency = 0 end
         for _, d in ipairs(self.Gui:GetDescendants()) do glassify(d) end
+        if g and g.rimStroke then
+            g.rimStroke.Transparency = GlassFX.Lights and 0 or 0.85
+            g.rimGrad.Enabled = GlassFX.Lights
+        end
         if not self._glassConn then
             -- los elementos que se crean despues tambien se vuelven de cristal
             self._glassConn = self.Gui.DescendantAdded:Connect(function(d)
@@ -2225,8 +2288,247 @@ function WindowMT:SetGlass(on, save)
         if self._glassConn then self._glassConn:Disconnect() self._glassConn = nil end
         for _, d in ipairs(self.Gui:GetDescendants()) do unglassify(d) end
         repaintAll() -- devuelve a cada elemento el color de su estado (toggles encendidos, etc.)
+        GlassFX.Liquid = self._liquidPref == true
+        if self._shell then self._shell.BackgroundTransparency = self._alpha or 0 end
     end
     if save then self:_saveState({ glass = on }) end
+end
+
+-- transparencia del fondo de la ventana (0 = solido, 0.6 = muy transparente)
+function WindowMT:SetTransparency(v, save)
+    if v ~= nil then v = math.clamp(tonumber(v) or 0, 0, 0.6) end
+    self._alpha = v
+    if self._glass then
+        GlassFX.BackgroundAlpha = v or 0.14
+        for _, d in ipairs(self.Gui:GetDescendants()) do
+            local st = glassState[d]
+            if st and st.key == "Background" and not st.stroke and not st.solid and d.BackgroundTransparency < 0.99 then
+                d.BackgroundTransparency = GlassFX.BackgroundAlpha
+            end
+        end
+    elseif self._shell then
+        self._shell.BackgroundTransparency = v or 0
+    end
+    if save then self:_saveState({ alpha = v or false }) end
+end
+function WindowMT:GetTransparency()
+    return self._alpha or (self._glass and 0.14 or 0)
+end
+
+-- bordes de luz que siguen al mouse (solo en Glass)
+function WindowMT:SetLights(on, save)
+    self._lights = on ~= false
+    GlassFX.Lights = self._lights
+    for _, d in ipairs(self.Gui:GetDescendants()) do
+        local st = glassState[d]
+        if st and st.grad then st.grad.Enabled = self._lights end
+    end
+    local g = self._glassFx
+    if g and g.rimStroke then
+        g.rimStroke.Transparency = self._lights and 0 or 0.85
+        g.rimGrad.Enabled = self._lights
+    end
+    if save then self:_saveState({ lights = self._lights }) end
+end
+
+-- Panel de personalizacion (boton de deslizadores en la barra superior)
+function WindowMT:_buildCustomizer()
+    local win = self
+    local btn = self._custBtn
+    local Z = 70
+    local pop = create("Frame", {
+        AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, TOP_H + 6), Size = UDim2.fromOffset(250, 0),
+        AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Background, Visible = false, ZIndex = Z,
+        Active = true, Parent = self._root,
+    }, { corner(14), stroke(Theme.Stroke, 1, 0.2), padding(12, 10, 12, 12), listLayout(6) })
+    local popScale = create("UIScale", { Parent = pop })
+    local order = 0
+    local function row(h)
+        order = order + 1
+        return create("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, h or 28), LayoutOrder = order,
+            ZIndex = Z, Parent = pop })
+    end
+    local function title(t)
+        local r = row(16)
+        label({ Text = t, Font = Fonts.Bold, TextSize = 10, TextColor3 = Theme.Dim, Size = UDim2.fromScale(1, 1),
+            ZIndex = Z + 1, Parent = r })
+    end
+    local function rowLabel(r, t, w)
+        return label({ Text = t, TextSize = 12, Size = UDim2.new(1, -(w or 50), 1, 0), ZIndex = Z + 1, Parent = r })
+    end
+
+    -- interruptor con la bolita que se estira al viajar
+    local switches = {}
+    local function switch(text, get, set)
+        local r = row(28)
+        rowLabel(r, text)
+        local track = create("TextButton", { Text = "", AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
+            Size = UDim2.fromOffset(36, 20), BackgroundColor3 = Theme.Row, ZIndex = Z + 1, Parent = r },
+            { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        local knob = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
+            Size = UDim2.fromOffset(14, 14), BackgroundColor3 = rgb(255, 255, 255), ZIndex = Z + 2, ThemeIgnore = true,
+            Parent = track }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        local function paint(anim)
+            local on = get()
+            local t = anim and 1 or 0
+            tween(knob, { Size = UDim2.fromOffset(20, 13) }, 0.1 * t, Enum.EasingStyle.Quad)
+            tween(knob, { Position = UDim2.new(0, on and 26 or 10, 0.5, 0) }, 0.28 * t)
+            task.delay(0.1 * t, function() tween(knob, { Size = UDim2.fromOffset(14, 14) }, 0.5 * t, Enum.EasingStyle.Elastic) end)
+            tween(track, { BackgroundColor3 = on and Theme.Accent or Theme.Row }, 0.2 * t)
+        end
+        track.Activated:Connect(function() set(not get()) paint(true) end)
+        paint(false)
+        table.insert(switches, paint)
+    end
+
+    title("STYLE")
+    switch("Liquid glass", function() return win._glass == true end, function(v) win:SetGlass(v, true) win:_custRefresh() end)
+    switch("Light edges", function() return win._lights ~= false end, function(v) win:SetLights(v, true) end)
+    switch("Bouncy buttons", function() return GlassFX.Liquid end, function(v)
+        GlassFX.Liquid = v
+        win._liquidPref = v
+        win:_saveState({ liquid = v })
+    end)
+
+    -- transparencia
+    local tr = row(28)
+    rowLabel(tr, "Transparency")
+    local tVal = label({ Text = "", Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.Muted, AnchorPoint = Vector2.new(1, 0),
+        Position = UDim2.new(1, 0, 0, 0), Size = UDim2.fromOffset(44, 28), TextXAlignment = Enum.TextXAlignment.Right,
+        ZIndex = Z + 1, Parent = tr })
+    local sr = row(14)
+    local track = create("TextButton", { Text = "", AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5),
+        Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = Theme.Input, ZIndex = Z + 1, Parent = sr },
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local fill = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, ZIndex = Z + 2, Parent = track },
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local knob = create("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5),
+        Size = UDim2.fromOffset(14, 14), BackgroundColor3 = rgb(255, 255, 255), ZIndex = Z + 3, ThemeIgnore = true,
+        Parent = track }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local function paintAlpha()
+        local a = win:GetTransparency() / 0.6
+        fill.Size = UDim2.fromScale(a, 1)
+        knob.Position = UDim2.fromScale(a, 0.5)
+        tVal.Text = string.format("%d%%", math.floor(win:GetTransparency() / 0.6 * 100 + 0.5))
+    end
+    local sliding = false
+    local function slide(x)
+        local a = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+        win:SetTransparency(a * 0.6)
+        paintAlpha()
+    end
+    track.InputBegan:Connect(function(i)
+        if isPress(i) then sliding = true Library._binding = true slide(i.Position.X) end
+    end)
+    table.insert(self._conns, UserInputService.InputChanged:Connect(function(i)
+        if sliding and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            slide(i.Position.X)
+        end
+    end))
+    table.insert(self._conns, UserInputService.InputEnded:Connect(function(i)
+        if sliding and isPress(i) then
+            sliding = false
+            Library._binding = false
+            win:SetTransparency(win._alpha, true)
+        end
+    end))
+
+    -- tema: flechas para recorrer los temas
+    title("COLORS")
+    local thr = row(28)
+    rowLabel(thr, "Theme", 120)
+    local thBox = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
+        Size = UDim2.fromOffset(118, 24), BackgroundColor3 = Theme.Input, ZIndex = Z + 1, Parent = thr }, { corner(7) })
+    local thName = label({ Text = Library.CurrentTheme, Font = Fonts.Bold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Center,
+        Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(20, 0), ZIndex = Z + 2, Parent = thBox })
+    local accentRow
+    local function arrow(dir)
+        local b = create("TextButton", { Text = dir < 0 and "<" or ">", Font = Fonts.Bold, TextSize = 13,
+            TextColor3 = Theme.Muted, BackgroundTransparency = 1, Size = UDim2.fromOffset(20, 24),
+            Position = dir < 0 and UDim2.fromOffset(0, 0) or UDim2.new(1, -20, 0, 0), ZIndex = Z + 2, Parent = thBox })
+        b.Activated:Connect(function()
+            local list = Library.ThemeOrder
+            local i = table.find(list, Library.CurrentTheme) or 1
+            local name = list[(i - 1 + dir) % #list + 1]
+            Library:SetTheme(name)
+            win._state.accent = nil
+            win:_saveState({ theme = name })
+            thName.Text = name
+            win:_custRefresh()
+        end)
+    end
+    arrow(-1)
+    arrow(1)
+
+    accentRow = row(26)
+    create("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), Parent = accentRow })
+    local swatches = {}
+    for i, c in ipairs(Library.ListPresets) do
+        local b = create("TextButton", { Text = "", Size = UDim2.fromOffset(24, 24), BackgroundColor3 = c, LayoutOrder = i,
+            ZIndex = Z + 1, ThemeIgnore = true, Parent = accentRow }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        local st = create("UIStroke", { Color = rgb(255, 255, 255), Thickness = 2, Transparency = 1, ThemeIgnore = true, Parent = b })
+        table.insert(swatches, { c = c, st = st })
+        pressFx(b, nil, 0.85)
+        b.Activated:Connect(function()
+            Library:SetAccent(c)
+            win:_saveState({ accent = toHex(c) })
+            win:_custRefresh()
+        end)
+    end
+
+    -- restablecer
+    local rr = row(28)
+    local reset = create("TextButton", { Text = "Reset style", Font = Fonts.Bold, TextSize = 12, TextColor3 = Theme.Text,
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Row, ZIndex = Z + 1, Parent = rr }, { corner(8) })
+    pressFx(reset, nil, 0.96)
+    reset.Activated:Connect(function()
+        local W = win.Config.Window
+        win:SetGlass(tostring(W.Style):lower() == "glass", true)
+        win:SetTransparency(nil, true)
+        win:SetLights(true, true)
+        GlassFX.Liquid = win._glass == true
+        win._liquidPref = nil
+        win._state.liquid = nil
+        win:_saveState()
+        win:_custRefresh()
+    end)
+
+    function win:_custRefresh()
+        for _, p in ipairs(switches) do p(false) end
+        paintAlpha()
+        thName.Text = Library.CurrentTheme
+        for _, s in ipairs(swatches) do s.st.Transparency = s.c == Theme.Accent and 0 or 1 end
+    end
+
+    local function setOpen(v)
+        if v == (win._custOpen == true) then return end
+        win._custOpen = v
+        if v then
+            win:_custRefresh()
+            pop.Visible = true
+            popScale.Scale = 0.9
+            tween(popScale, { Scale = 1 }, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        else
+            tweenThen(popScale, { Scale = 0.92 }, 0.1, function() if not win._custOpen then pop.Visible = false end end,
+                Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end
+        win._custPaint(v and Theme.Accent or Theme.Muted)
+    end
+    self._setCustOpen = setOpen
+    btn.Activated:Connect(function() setOpen(not win._custOpen) end)
+    -- un click fuera del panel lo cierra. El ScreenGui ignora el inset de la barra de Roblox y la
+    -- posicion del input no lo incluye: se suma para comparar en las mismas coordenadas
+    table.insert(self._conns, UserInputService.InputBegan:Connect(function(i)
+        if not win._custOpen or not isPress(i) then return end
+        local inset = Vector2.new()
+        pcall(function() inset = game:GetService("GuiService"):GetGuiInset() end)
+        local p = Vector2.new(i.Position.X, i.Position.Y) + inset
+        local function inside(f)
+            local a, s = f.AbsolutePosition, f.AbsoluteSize
+            return p.X >= a.X and p.Y >= a.Y and p.X <= a.X + s.X and p.Y <= a.Y + s.Y
+        end
+        if not inside(pop) and not inside(btn) then setOpen(false) end
+    end))
 end
 
 -- fn se ejecuta al descargar la interfaz (util para detener loops del script)
