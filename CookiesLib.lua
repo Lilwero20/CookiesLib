@@ -561,24 +561,116 @@ function GlassFX.tint(parent, radius, color, amount, z)
     })
 end
 
--- Transparencia de cada color del tema cuando la ventana usa Style = "Glass"
-local GLASS_ALPHA = { Background = 0.3, Panel = 0.42, Element = 0.4, Row = 0.5, RowHover = 0.38, Input = 0.32 }
-local glassOrig = setmetatable({}, { __mode = "k" })
--- los popups (dropdowns abiertos, tooltips, notificaciones) usan ZIndex alto y quedan opacos para leerse bien
-local function glassify(inst)
-    if not inst:IsA("GuiObject") or inst.ZIndex >= 40 then return end
-    local map = themed[inst]
-    local a = map and GLASS_ALPHA[map.BackgroundColor3]
-    if a and inst.BackgroundTransparency < 0.05 and glassOrig[inst] == nil then
-        glassOrig[inst] = inst.BackgroundTransparency
-        inst.BackgroundTransparency = a
+-- Superficies en Style = "Glass": el fondo es vidrio oscuro y todo lo de encima son velos blancos
+-- muy tenues (o pozos oscuros para los inputs). Apilar capas teñidas del tema sobre un juego claro
+-- las volvia turbias; los velos neutros se ven limpios sobre cualquier fondo.
+local GLASS_WHITE, GLASS_BLACK = rgb(255, 255, 255), rgb(0, 0, 0)
+local GLASS_SURF = {
+    Background = { nil, 0.3 },          -- conserva su color; la transparencia depende del desenfoque
+    Panel      = { GLASS_WHITE, 0.965 },
+    Element    = { GLASS_WHITE, 0.955 },
+    Row        = { GLASS_WHITE, 0.94 },
+    RowHover   = { GLASS_WHITE, 0.89 },
+    Input      = { GLASS_BLACK, 0.72 },
+    Stroke     = { GLASS_WHITE, 0.9 },   -- divisores y pistas: lineas finas de luz
+}
+local GLASS_STROKE = { Stroke = 0.86, Outline = 0.9 }
+GlassFX.BackgroundAlpha = 0.3
+local glassState = setmetatable({}, { __mode = "k" })
+
+local function surfKey(c, map)
+    for k in pairs(map) do
+        if Theme[k] == c then return k end
+    end
+    return nil
+end
+
+local function applySurf(inst, key, animate)
+    local spec = GLASS_SURF[key]
+    local color = spec[1] or inst.BackgroundColor3
+    local alpha = key == "Background" and GlassFX.BackgroundAlpha or spec[2]
+    if animate then
+        tween(inst, { BackgroundColor3 = color, BackgroundTransparency = alpha }, 0.14)
+    else
+        inst.BackgroundColor3, inst.BackgroundTransparency = color, alpha
     end
 end
+
+-- los popups (dropdowns abiertos, tooltips, notificaciones) usan ZIndex alto y quedan opacos para leerse bien
+local function glassify(inst)
+    if glassState[inst] then return end
+    if inst:IsA("UIStroke") then
+        local key = surfKey(inst.Color, GLASS_STROKE)
+        if not key then return end
+        local st = { stroke = true, key = key, t = inst.Transparency }
+        local function apply()
+            inst.Color = GLASS_WHITE
+            inst.Transparency = math.max(st.t, GLASS_STROKE[st.key])
+        end
+        apply()
+        -- si la libreria vuelve a ponerle el color del tema (repintado), se reaplica el borde de luz
+        st.conn = inst:GetPropertyChangedSignal("Color"):Connect(function()
+            local k = surfKey(inst.Color, GLASS_STROKE)
+            if k then st.key = k apply() end
+        end)
+        glassState[inst] = st
+        return
+    end
+    if not inst:IsA("GuiObject") or inst.ZIndex >= 40 then return end
+    local key = surfKey(inst.BackgroundColor3, GLASS_SURF)
+    if not key then return end
+    local st = { key = key, t = inst.BackgroundTransparency }
+    glassState[inst] = st
+    -- los objetos ocultos (p.ej. botones que solo se ven con hover) se convierten cuando aparecen
+    local visible = inst.BackgroundTransparency < 0.05
+    if visible then applySurf(inst, key) else inst.BackgroundColor3 = st.key == "Background" and inst.BackgroundColor3 or (GLASS_SURF[key][1] or inst.BackgroundColor3) end
+    -- hovers, toggles y repintados ponen colores del tema: los de superficie se convierten en velo,
+    -- los de acento (toggle encendido, boton principal) quedan opacos; los intermedios de un tween se ignoran
+    local c1 = inst:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+        local c = inst.BackgroundColor3
+        if c == GLASS_WHITE or c == GLASS_BLACK then return end
+        local k = surfKey(c, GLASS_SURF)
+        if k then
+            st.key = k
+            if inst.BackgroundTransparency > 0.5 then
+                inst.BackgroundColor3 = GLASS_SURF[k][1] or c
+            else
+                applySurf(inst, k, true)
+            end
+        elseif themeKeyOf(c) and inst.BackgroundTransparency <= 0.5 then
+            inst.BackgroundTransparency = 0
+        end
+    end)
+    local c2 = inst:GetPropertyChangedSignal("BackgroundTransparency"):Connect(function()
+        local c = inst.BackgroundColor3
+        if inst.BackgroundTransparency < 0.05 and (c == GLASS_WHITE or c == GLASS_BLACK or surfKey(c, GLASS_SURF)) then
+            local spec = GLASS_SURF[st.key]
+            inst.BackgroundTransparency = st.key == "Background" and GlassFX.BackgroundAlpha or spec[2]
+        end
+    end)
+    st.conn = { Disconnect = function() c1:Disconnect() c2:Disconnect() end }
+end
+
 local function unglassify(inst)
-    local o = glassOrig[inst]
-    if o ~= nil then
-        glassOrig[inst] = nil
-        if inst.Parent then inst.BackgroundTransparency = o end
+    local st = glassState[inst]
+    if not st then return end
+    glassState[inst] = nil
+    st.conn:Disconnect()
+    if not inst.Parent then return end
+    if st.stroke then
+        inst.Color, inst.Transparency = Theme[st.key], st.t
+    else
+        inst.BackgroundColor3, inst.BackgroundTransparency = Theme[st.key], st.t
+    end
+end
+
+-- cambia la opacidad del vidrio de fondo (mas solido cuando no hay desenfoque detras)
+local function refreshGlassBackground(gui)
+    for _, d in ipairs(gui:GetDescendants()) do
+        local st = glassState[d]
+        if st and st.key == "Background" and not st.stroke then
+            tween(d, { BackgroundTransparency = GlassFX.BackgroundAlpha }, 0.25)
+        end
     end
 end
 
@@ -2147,6 +2239,7 @@ function WindowMT:SetGlass(on, save)
         g.blur:SetEnabled(on)
     end
     if on then
+        GlassFX.BackgroundAlpha = self._blurOn ~= false and 0.3 or 0.14
         for _, d in ipairs(self.Gui:GetDescendants()) do glassify(d) end
         if not self._glassConn then
             -- los elementos que se crean despues tambien se vuelven de cristal
@@ -2159,12 +2252,16 @@ function WindowMT:SetGlass(on, save)
     else
         if self._glassConn then self._glassConn:Disconnect() self._glassConn = nil end
         for _, d in ipairs(self.Gui:GetDescendants()) do unglassify(d) end
+        repaintAll() -- devuelve a cada elemento el color de su estado (toggles encendidos, etc.)
     end
     if save then self:_saveState({ glass = on }) end
 end
 
 function WindowMT:SetBlur(on, save)
     self._blurOn = on ~= false
+    -- sin desenfoque detras, el vidrio se vuelve mas solido para que el juego no lo ensucie
+    GlassFX.BackgroundAlpha = self._blurOn and 0.3 or 0.14
+    if self._glass then refreshGlassBackground(self.Gui) end
     if save then self:_saveState({ blur = self._blurOn }) end
 end
 
