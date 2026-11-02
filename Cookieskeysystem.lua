@@ -1112,17 +1112,35 @@ function KeySystem.new(opts)
             for i, p in ipairs(points) do kps[i] = NumberSequenceKeypoint.new(p[1], p[2]) end
             return NumberSequence.new(kps)
         end
-        -- cada superficie del tema se vuelve translucida
-        local alpha = {
-            { Theme.Panel, 0.42 }, { Theme.Element, 0.4 }, { Theme.Row, 0.5 },
-            { Theme.RowHover, 0.38 }, { Theme.Input, 0.32 },
+        -- el fondo es vidrio oscuro y todo lo de encima son velos blancos muy tenues (o pozos
+        -- oscuros para el input): capas neutras que no se ensucian con los colores del juego
+        local BLACK = rgb(0, 0, 0)
+        local surf = {
+            { Theme.Panel, WHITE, 0.965 }, { Theme.Element, WHITE, 0.955 }, { Theme.Row, WHITE, 0.94 },
+            { Theme.RowHover, WHITE, 0.89 }, { Theme.Input, BLACK, 0.72 }, { Theme.Stroke, WHITE, 0.9 },
         }
-        root.BackgroundTransparency = 0.28
+        local function find(c)
+            for _, p in ipairs(surf) do
+                if c == p[1] then return p end
+            end
+        end
+        root.BackgroundTransparency = cfg.Blur and 0.28 or 0.14
         for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("GuiObject") and d.BackgroundTransparency < 0.05 then
-                for _, p in ipairs(alpha) do
-                    if d.BackgroundColor3 == p[1] then d.BackgroundTransparency = p[2] break end
-                end
+            if d:IsA("UIStroke") and (d.Color == Theme.Stroke or d.Color == Theme.Outline) then
+                local base = d.Transparency
+                d.Color, d.Transparency = WHITE, math.max(base, 0.86)
+                -- al perder el foco el input vuelve al color del borde: se reaplica la luz
+                d:GetPropertyChangedSignal("Color"):Connect(function()
+                    if d.Color == Theme.Stroke then d.Color, d.Transparency = WHITE, math.max(base, 0.86) end
+                end)
+            elseif d:IsA("GuiObject") and d.BackgroundTransparency < 0.05 and find(d.BackgroundColor3) then
+                local p = find(d.BackgroundColor3)
+                d.BackgroundColor3, d.BackgroundTransparency = p[2], p[3]
+                -- los hovers ponen colores del tema: se convierten en velo al terminar
+                d:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                    local q = find(d.BackgroundColor3)
+                    if q then tween(d, { BackgroundColor3 = q[2], BackgroundTransparency = q[3] }, 0.12) end
+                end)
             end
         end
         -- tinte de acento por la esquina y reflejo en la parte superior (detras del contenido)
