@@ -9,7 +9,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 local Library = {}
-Library.Version = "3.6.0"
+Library.Version = "3.9.0"
 Library.Flags = {}
 Library.Options = Library.Flags
 Library.Windows = {}
@@ -17,13 +17,14 @@ Library._binding = false
 
 local rgb = Color3.fromRGB
 local Theme = {
-    Background  = rgb(19, 13, 10),
-    Panel       = rgb(27, 19, 14),
-    Element     = rgb(33, 23, 17),
-    Row         = rgb(40, 28, 20),
-    RowHover    = rgb(50, 34, 24),
-    Input       = rgb(21, 14, 11),
-    Stroke      = rgb(74, 51, 33),
+    -- capas con mas separacion: fondo < panel < seccion < fila (cada una un escalon mas clara)
+    Background  = rgb(17, 11, 8),
+    Panel       = rgb(28, 19, 14),
+    Element     = rgb(39, 27, 19),
+    Row         = rgb(51, 36, 25),
+    RowHover    = rgb(64, 45, 31),
+    Input       = rgb(20, 13, 10),
+    Stroke      = rgb(86, 60, 38),
     Outline     = rgb(10, 7, 5),
     Accent      = rgb(245, 194, 12),
     AccentHi    = rgb(255, 214, 64),
@@ -35,6 +36,10 @@ local Theme = {
     Success     = rgb(96, 196, 124),
     Warning     = rgb(232, 148, 58),
     Error       = rgb(224, 92, 92),
+    -- estilo "galleta glaseada" (como el logo): sombra dorada, contorno chocolate y sombra calida
+    AccentDeep  = rgb(214, 150, 4),
+    Chocolate   = rgb(92, 46, 16),
+    Shadow      = rgb(14, 6, 2),
 }
 Library.Theme = Theme
 
@@ -44,7 +49,7 @@ local function deriveTheme(bg, tint, accent, text)
     local function m(a) return bg:Lerp(tint, a) end
     local black = rgb(0, 0, 0)
     return {
-        Background = bg, Panel = m(0.04), Element = m(0.075), Row = m(0.115), RowHover = m(0.17),
+        Background = bg, Panel = m(0.05), Element = m(0.1), Row = m(0.15), RowHover = m(0.21),
         Input = bg:Lerp(black, 0.18), Stroke = m(0.3), Outline = bg:Lerp(black, 0.5),
         Accent = accent, Text = text, Muted = text:Lerp(bg, 0.32), Dim = text:Lerp(bg, 0.52),
         Success = rgb(96, 196, 124), Warning = rgb(232, 148, 58), Error = rgb(224, 92, 92),
@@ -74,6 +79,8 @@ local Fonts = {
     Title = tryFont("BuilderSansBold") or Enum.Font.GothamBold,
     Body  = tryFont("BuilderSans") or Enum.Font.GothamMedium,
     Bold  = tryFont("BuilderSansBold") or Enum.Font.GothamBold,
+    -- letras redondas y gorditas, como el wordmark de Cookies (titulo de la ventana e intro)
+    Brand = tryFont("FredokaOne") or tryFont("BuilderSansBold") or Enum.Font.GothamBold,
 }
 Library.Fonts = Fonts
 
@@ -87,6 +94,8 @@ Library.Config = {
     AnimationSpeed = 1,
     EasingStyle = Enum.EasingStyle.Quint,
     EasingDirection = Enum.EasingDirection.Out,
+    -- efectos extra: "Full" (rebotes, chispas, migajas), "Subtle" (rebotes suaves, sin particulas) u "Off"
+    Juice = "Full",
 
     Window = {
         Title = "Cookies Hub",
@@ -109,8 +118,8 @@ Library.Config = {
         ShowProfile = true,
         AutoScale = true,
         DisplayOrder = 50,
-        Corner = 12,
-        Shadow = true,             -- sombra suave detras de la ventana
+        Corner = 12,               -- radios en escala fija: ventana/tarjetas 12, controles 8, chips/inputs 6
+        Shadow = true,            -- sombra suave detras de la ventana
         AccentLine = true,         -- linea de acento con degradado bajo la barra superior
         SmoothDrag = true,         -- arrastre con interpolacion (se siente mas fluido)
         RememberLayout = true,     -- recuerda tamano, posicion, tab, tema y ajustes entre ejecuciones
@@ -118,13 +127,17 @@ Library.Config = {
         SearchShortcut = true,     -- Ctrl+F abre la busqueda global
         Style = "Default",         -- "Default" | "Glass" (vidrio translucido con bordes de luz)
         Customizer = true,         -- boton en la barra para cambiar estilo, transparencia y colores
+        StatusCard = true,         -- bloque con la marca y el tiempo de sesion sobre el perfil del sidebar
     },
+    -- imagenes opcionales. Glow = id de una textura "soft circle" (blanco -> transparente) para los
+    -- resplandores. Si es nil se genera sola con EditableImage (si el juego no lo permite, no hay glow).
+    Assets = { Glow = nil },
     Tab = { Columns = 2, Padding = 12, Gap = 10, IconSize = 20, IconTint = true, SingleColumnBelow = 440 },
     Section = {
         Collapsible = true, Minimized = false, Columns = 1, MaxHeight = nil,
-        Gap = 6, ColumnGap = 8, Corner = 10,
+        Gap = 6, ColumnGap = 8, Corner = 12,
     },
-    Element = { Height = 32, Corner = 7 },
+    Element = { Height = 32, Corner = 8 },
     Notify = {
         Duration = 4, Width = 290,
         Position = "BottomRight",  -- BottomRight | TopRight | BottomLeft | TopLeft
@@ -152,6 +165,7 @@ Library.Config = {
         ShowBar = true,            -- barra de carga debajo del logo
         Skippable = true,          -- click / tap para saltarla
         OncePerSession = true,     -- al re-ejecutar el script en la misma partida no se repite
+        Cookie = true,             -- (sin uso desde 3.9.0: la intro volvio a la original con el logo real)
     },
 }
 
@@ -192,7 +206,7 @@ end
 local THEME_KEYS = {
     "Accent", "AccentHi", "AccentSoft", "OnAccent", "Text", "Muted", "Dim",
     "Background", "Panel", "Element", "Row", "RowHover", "Input", "Stroke", "Outline",
-    "Success", "Warning", "Error",
+    "Success", "Warning", "Error", "AccentDeep", "Chocolate", "Shadow",
 }
 local themed = setmetatable({}, { __mode = "k" })
 
@@ -214,10 +228,20 @@ local function applyTheme(t)
             local lum = 0.299 * accent.R + 0.587 * accent.G + 0.114 * accent.B
             Theme.OnAccent = lum > 0.55 and rgb(40, 20, 8) or rgb(254, 254, 254)
         end
+        -- cada sabor hereda el look glaseado: sombra del acento y contorno chocolate con un toque del acento
+        if not t.AccentDeep then Theme.AccentDeep = accent:Lerp(rgb(0, 0, 0), 0.22) end
+        if not t.Chocolate then Theme.Chocolate = rgb(64, 30, 10):Lerp(accent, 0.15) end
     end
+    if t.Background and not t.Shadow then Theme.Shadow = t.Background:Lerp(rgb(0, 0, 0), 0.6) end
 end
 
+-- colores derivados (mezclas de varios colores del tema) que se recalculan al cambiar de tema
+local REPAINT_HOOKS = setmetatable({}, { __mode = "k" })
+
 local function repaintAll()
+    for inst, fn in pairs(REPAINT_HOOKS) do
+        if inst.Parent then pcall(fn) end
+    end
     for inst, map in pairs(themed) do
         if inst.Parent then
             for prop, key in pairs(map) do
@@ -238,6 +262,12 @@ function Library:SetTheme(t)
         if not preset then return false end
         Library.CurrentTheme = t
         applyTheme(preset)
+        -- ola de glaseado con el sabor nuevo (despues de repintar)
+        task.defer(function()
+            for _, w in ipairs(Library.Windows) do
+                if w._flavorWave then pcall(w._flavorWave) end
+            end
+        end)
     elseif type(t) == "table" then
         applyTheme(t)
     else
@@ -390,11 +420,20 @@ local function hover(obj, normal, over, prop)
     obj.MouseLeave:Connect(function() tween(obj, { [prop] = col(normal) }, 0.12) end)
 end
 
--- brillo vertical sutil para superficies de acento (botones Primary, pastilla seleccionada...)
+-- glaseado de 3 paradas (luz arriba-izquierda -> base -> sombra dorada abajo), como el volumen de la "C"
+-- del logo. Es un UIGradient que multiplica el color, asi funciona con cualquier acento.
 local function sheen(parent, amount)
-    local c = 255 - math.floor((amount or 0.16) * 255)
+    amount = amount or 0.16
+    local mid = 255 - math.floor(amount * 0.35 * 255)
+    local lo = 255 - math.floor(math.min(amount * 1.7, 0.6) * 255)
     return create("UIGradient", {
-        Rotation = 90, Color = ColorSequence.new(rgb(255, 255, 255), rgb(c, c, c)), Parent = parent,
+        Rotation = 100,
+        Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, rgb(255, 255, 255)),
+            ColorSequenceKeypoint.new(0.45, rgb(mid, mid, mid)),
+            ColorSequenceKeypoint.new(1, rgb(lo, lo, lo)),
+        }),
+        Parent = parent,
     })
 end
 
@@ -536,7 +575,8 @@ local GLASS_SURF = {
     Stroke     = { GLASS_WHITE, 0.9 },   -- divisores y pistas: lineas finas de luz
 }
 -- transparencia minima de cada borde (los de las filas conservan la suya, que sube con el hover)
-local GLASS_STROKE = { Stroke = 0, Outline = 1 }  -- el contorno oscuro se oculta: lo reemplaza el borde de luz
+-- el contorno oscuro y el chocolate (sticker) se ocultan: en cristal los reemplaza el borde de luz
+local GLASS_STROKE = { Stroke = 0, Outline = 1, Chocolate = 1 }
 -- sin desenfoque detras, el vidrio necesita ser casi solido para que el juego no lo ensucie
 GlassFX.BackgroundAlpha = 0.14
 local glassState = setmetatable({}, { __mode = "k" })
@@ -645,6 +685,627 @@ local function unglassify(inst)
     end
 end
 
+----------------------------------------------------------------
+-- Juice: resortes, ondas, brillos que cruzan, particulas y el estilo "galleta glaseada".
+-- Todo lo que se anima por frame comparte un solo Heartbeat que se apaga solo cuando no hay
+-- nada moviendose (nada de loops en reposo).
+----------------------------------------------------------------
+-- nivel de efectos: 2 = "Full", 1 = "Subtle" (sin particulas ni rebotes exagerados), 0 = "Off"
+local function juice()
+    local C = Library.Config
+    if not C.Animations then return 0 end
+    local j = string.lower(tostring(C.Juice or "Full"))
+    if j == "off" then return 0 elseif j == "subtle" then return 1 end
+    return 2
+end
+Library.JuiceLevel = juice
+
+local function animSpeed() return math.max(Library.Config.AnimationSpeed or 1, 0.05) end
+
+local GuiService = game:GetService("GuiService")
+-- el ScreenGui ignora el inset de la barra de Roblox pero InputObject.Position no lo incluye
+local function guiInset()
+    local ok, v = pcall(function() return GuiService:GetGuiInset() end)
+    return ok and v or Vector2.new()
+end
+
+-- Resortes: Spring.new(valor, frecuencia, amortiguacion, pintar(x, velocidad), instancia)
+-- amortiguacion < 1 rebota (0.5 mucho, 0.8 poco, 1 nada). pintar() se llama cada frame mientras se mueve.
+local Spring = { _active = {} }
+Library.Spring = Spring
+local TAU = math.pi * 2
+
+function Spring._step(dt)
+    dt = math.min(dt, 1 / 30)
+    local speed = animSpeed()
+    local h = dt / 2
+    for s in pairs(Spring._active) do
+        if s.inst and not s.inst.Parent then
+            Spring._active[s] = nil
+        else
+            local w = s.f * TAU * speed
+            -- dos subpasos: se mantiene estable aunque el juego vaya a pocos FPS
+            for _ = 1, 2 do
+                local a = -w * w * (s.x - s.target) - 2 * s.d * w * s.v
+                s.v = s.v + a * h
+                s.x = s.x + s.v * h
+            end
+            if math.abs(s.x - s.target) < s.eps and math.abs(s.v) < s.eps * 20 then
+                s.x, s.v = s.target, 0
+                Spring._active[s] = nil
+            end
+            if not pcall(s.step, s.x, s.v) then Spring._active[s] = nil end
+        end
+    end
+    if next(Spring._active) == nil and Spring._conn then
+        Spring._conn:Disconnect()
+        Spring._conn = nil
+    end
+end
+
+function Spring.new(x, freq, damp, step, inst, eps)
+    return { x = x, v = 0, target = x, f = freq or 4, d = damp or 0.7, step = step, inst = inst, eps = eps or 0.01 }
+end
+
+function Spring.to(s, target, instant)
+    s.target = target
+    if instant or not Library.Config.Animations then
+        s.x, s.v = target, 0
+        Spring._active[s] = nil
+        pcall(s.step, target, 0)
+        return
+    end
+    Spring._active[s] = true
+    if not Spring._conn then Spring._conn = RunService.Heartbeat:Connect(Spring._step) end
+end
+
+-- franja de luz (gloss) en la mitad de arriba, como el brillo del logo
+local function gloss(parent, radius, strength, z)
+    local s = strength or 0.28
+    return create("Frame", {
+        Size = UDim2.new(1, 0, 0.55, 0), BackgroundColor3 = GLASS_WHITE, ZIndex = z or 1,
+        ThemeIgnore = true, Parent = parent,
+    }, {
+        create("UICorner", { CornerRadius = radius == "full" and UDim.new(1, 0) or UDim.new(0, radius or 6) }),
+        create("UIGradient", { Rotation = 90, Transparency = nseq({ { 0, 1 - s }, { 0.55, 1 - s * 0.3 }, { 1, 1 } }) }),
+    })
+end
+
+-- contorno chocolate estilo sticker (el borde grueso del logo)
+local function sticker(parent, thickness, transparency)
+    local s = stroke(Theme.Chocolate, thickness or 1.5, transparency or 0)
+    s.Parent = parent
+    return s
+end
+
+-- brillo que cruza la superficie (shine sweep). Devuelve una funcion que lo dispara.
+local function shine(host, radius, strength, z)
+    local s = strength or 0.22
+    local f = create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = GLASS_WHITE, ZIndex = z or 1, ThemeIgnore = true, Parent = host,
+    }, { create("UICorner", { CornerRadius = radius == "full" and UDim.new(1, 0) or UDim.new(0, radius or 6) }) })
+    local g = create("UIGradient", {
+        Rotation = 18, Offset = Vector2.new(-1, 0),
+        Transparency = nseq({ { 0, 1 }, { 0.38, 1 }, { 0.5, 1 - s }, { 0.62, 1 }, { 1, 1 } }), Parent = f,
+    })
+    local busy = false
+    return function()
+        if busy or juice() == 0 or not f.Parent then return end
+        busy = true
+        g.Offset = Vector2.new(-1, 0)
+        tweenThen(g, { Offset = Vector2.new(1, 0) }, 0.55, function() busy = false end,
+            Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+    end
+end
+
+-- onda dorada desde el punto del click. host debe tener ClipsDescendants; queda debajo del texto (ZIndex 0)
+local function ripple(host, input, color)
+    if juice() == 0 or not host or not host.Parent then return end
+    local a, s = host.AbsolutePosition, host.AbsoluteSize
+    local rx, ry = 0.5, 0.5
+    if input and typeof(input) == "Instance" and input:IsA("InputObject") then
+        local p = Vector2.new(input.Position.X, input.Position.Y) + guiInset()
+        rx = math.clamp((p.X - a.X) / math.max(s.X, 1), 0, 1)
+        ry = math.clamp((p.Y - a.Y) / math.max(s.Y, 1), 0, 1)
+    end
+    local dot = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(rx, ry), Size = UDim2.fromScale(0, 0),
+        SizeConstraint = Enum.SizeConstraint.RelativeXX, BackgroundColor3 = color or Theme.AccentHi,
+        BackgroundTransparency = 0.55, ZIndex = 0, ThemeIgnore = true, Parent = host,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    tween(dot, { Size = UDim2.fromScale(2.4, 2.4), BackgroundTransparency = 1 }, 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    task.delay(0.5 / animSpeed() + 0.05, function() dot:Destroy() end)
+end
+
+-- Particulas (chispas doradas / migajas de galleta). Pool por ventana: maximo 12 vivas a la vez,
+-- se reutilizan en vez de crearse y destruirse. Solo con Juice = "Full".
+-- 24 particulas vivas como maximo por ventana (las lluvias usan mas); nunca se crean por frame
+local FX_MAX = 24
+local function fxPool(win)
+    local fx = win._fx
+    if not fx then
+        local layer = create("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 155, Parent = win.Gui })
+        pcall(function() layer.Interactable = false end)
+        fx = { layer = layer, free = {}, n = 0 }
+        win._fx = fx
+    end
+    return fx
+end
+-- toma una particula libre del pool (o crea una si aun no se llega al limite). nil = pool lleno
+local function fxGet(fx)
+    local p = table.remove(fx.free)
+    if not p then
+        if fx.n >= FX_MAX then return nil end
+        fx.n = fx.n + 1
+        p = create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = GLASS_WHITE, ZIndex = 156,
+            ThemeIgnore = true, Visible = false, Parent = fx.layer,
+        }, { create("UICorner", { CornerRadius = UDim.new(0, 2) }) })
+        pcall(function() p.Interactable = false end)
+    end
+    return p
+end
+local function fxFree(fx, p, after)
+    task.delay(after, function()
+        p.Visible = false
+        table.insert(fx.free, p)
+    end)
+end
+-- color de una chispa de reposteria (o arcoiris si ese modo esta activo)
+local SPRINKLE_KEYS = { "Text", "Error", "Success", "Chocolate" }
+local rainbowUntil = 0
+local function sprinkleColor(i)
+    if os.clock() < rainbowUntil then return Color3.fromHSV((i * 0.13 + os.clock() * 0.4) % 1, 0.55, 1) end
+    return Theme[SPRINKLE_KEYS[(i - 1) % #SPRINKLE_KEYS + 1]]
+end
+
+local function burst(win, inst, n, kind, at)
+    if juice() < 2 or not win or not win.Gui or not win.Gui.Parent then return end
+    if not at and (not inst or not inst.Parent) then return end
+    local fx = fxPool(win)
+    local c = (at or (inst.AbsolutePosition + inst.AbsoluteSize / 2)) - win.Gui.AbsolutePosition
+    local crumb = kind == "crumb"
+    local spr = kind == "sprinkle"
+    local t = crumb and 0.62 or (spr and 0.55 or 0.42)
+    for i = 1, n do
+        local p = fxGet(fx)
+        if not p then break end
+        local ang = (i / n) * TAU + math.random() * 0.9
+        local dist = (crumb and 28 or (spr and 26 or 16)) + math.random() * 10
+        local sz = crumb and math.random(4, 7) or math.random(3, 5)
+        local col
+        if crumb then
+            col = (i % 2 == 0) and Theme.Chocolate or Theme.AccentDeep
+        elseif spr then
+            col = sprinkleColor(i)
+        else
+            col = (i % 3 == 0) and Theme.AccentDeep or ((i % 2 == 0) and Theme.AccentHi or Theme.Accent)
+        end
+        p.BackgroundColor3, p.BackgroundTransparency = col, 0
+        p.Size, p.Rotation = spr and UDim2.fromOffset(7, 2) or UDim2.fromOffset(sz, sz), math.random(0, 90)
+        p.Position = UDim2.fromOffset(c.X, c.Y)
+        p.Visible = true
+        -- las migajas caen un poco (gravedad); las chispas salen casi rectas
+        local gx, gy = math.cos(ang) * dist, math.sin(ang) * dist + (crumb and 16 or 3)
+        tween(p, {
+            Position = UDim2.fromOffset(c.X + gx, c.Y + gy), Rotation = p.Rotation + math.random(-140, 140),
+            Size = UDim2.fromOffset(1, 1), BackgroundTransparency = 1,
+        }, t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        task.delay(t / animSpeed() + 0.03, function()
+            p.Visible = false
+            table.insert(fx.free, p)
+        end)
+    end
+end
+
+-- "pop": escala desde pequeno con rebote (checks, iconos, burbujas)
+local function popIn(sc, from, t)
+    if juice() == 0 then sc.Scale = 1 return end
+    sc.Scale = from or 0.4
+    tween(sc, { Scale = 1 }, t or 0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+end
+
+-- latido: escala que va y viene mientras algo espera (keybind escuchando una tecla)
+local function pulse(inst, amount)
+    local sc = create("UIScale", { Parent = inst })
+    local tw
+    return function(on)
+        if tw then tw:Cancel() tw = nil end
+        sc.Scale = 1
+        if on and juice() > 0 then
+            tw = TweenService:Create(sc, TweenInfo.new(0.38 / animSpeed(), Enum.EasingStyle.Sine,
+                Enum.EasingDirection.InOut, -1, true), { Scale = amount or 1.08 })
+            tw:Play()
+        end
+    end
+end
+
+-- anillo de foco: el borde se pone dorado, mas grueso, y un brillo gira alrededor mientras tiene el foco
+local function focusRing(st, baseThick, restKey, restAlpha)
+    local g, spin
+    restKey, restAlpha = restKey or "Stroke", restAlpha or st.Transparency
+    return function(on)
+        if spin then spin:Cancel() spin = nil end
+        tween(st, {
+            Color = on and Theme.Accent or Theme[restKey], Transparency = on and 0 or restAlpha,
+            Thickness = on and (baseThick or 1) + 0.6 or (baseThick or 1),
+        }, 0.15)
+        -- en Glass el borde ya tiene su degradado de luz: no se le pone otro
+        if glassState[st] then return end
+        if on and juice() > 0 then
+            g = g or create("UIGradient", {
+                Transparency = nseq({ { 0, 0.55 }, { 0.5, 0 }, { 1, 0.55 } }), Parent = st,
+            })
+            g.Enabled, g.Rotation = true, 0
+            spin = TweenService:Create(g, TweenInfo.new(1.4 / animSpeed(), Enum.EasingStyle.Linear,
+                Enum.EasingDirection.InOut, -1), { Rotation = 360 })
+            spin:Play()
+        elseif g then
+            g.Enabled = false
+        end
+    end
+end
+
+-- luz interna de 1 px arriba de las tarjetas (da sensacion de borde biselado / elevacion)
+local function topLight(parent, radius, alpha, z)
+    return create("Frame", {
+        Position = UDim2.fromOffset(radius or 8, 1), Size = UDim2.new(1, -(radius or 8) * 2, 0, 1),
+        BackgroundColor3 = GLASS_WHITE, BackgroundTransparency = alpha or 0.9, ZIndex = z or 1,
+        ThemeIgnore = true, Parent = parent,
+    }, { create("UIGradient", { Transparency = nseq({ { 0, 1 }, { 0.25, 0 }, { 0.75, 0 }, { 1, 1 } }) }) })
+end
+
+-- Textura de resplandor radial: UNA sola imagen (circulo suave, blanco en el centro -> transparente
+-- en el borde), teñida con ImageColor3. Nada de capas apiladas, asi no hay anillos ni escalones.
+--   1) Config.Assets.Glow: si subes tu propia imagen (soft circle) pon su id aqui y se usa esa.
+--   2) Si no, se genera una vez al vuelo con EditableImage (128x128, curva suave sin borde).
+--   3) Si el juego no permite EditableImage, el glow simplemente no se muestra (nunca con bordes).
+local GLOW_TEX
+local function glowTexture()
+    local assets = Library.Config.Assets
+    if assets and type(assets.Glow) == "string" and assets.Glow ~= "" then return assets.Glow end
+    if GLOW_TEX ~= nil then return GLOW_TEX end
+    GLOW_TEX = false
+    pcall(function()
+        local N = 128
+        local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(N, N) })
+        local buf = buffer.create(N * N * 4)
+        for y = 0, N - 1 do
+            for x = 0, N - 1 do
+                local dx, dy = (x + 0.5) / N * 2 - 1, (y + 0.5) / N * 2 - 1
+                local t = math.clamp(1 - math.sqrt(dx * dx + dy * dy), 0, 1)
+                -- smoothstep elevado: centro lleno, caida larga y pendiente 0 en el borde (sin linea)
+                local a = (t * t * (3 - 2 * t)) ^ 1.5
+                local i = (y * N + x) * 4
+                buffer.writeu8(buf, i, 255)
+                buffer.writeu8(buf, i + 1, 255)
+                buffer.writeu8(buf, i + 2, 255)
+                buffer.writeu8(buf, i + 3, math.floor(a * 255 + 0.5))
+            end
+        end
+        img:WritePixelsBuffer(Vector2.zero, Vector2.new(N, N), buf)
+        GLOW_TEX = Content.fromObject(img)
+    end)
+    return GLOW_TEX
+end
+
+-- glow radial suave: un solo ImageLabel. strength = opacidad del centro (0-1). Devuelve el ImageLabel.
+local function glowBlob(parent, pos, size, color, strength, z, key)
+    local img = create("ImageLabel", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = pos, Size = size,
+        ImageColor3 = color or Theme.Accent, ImageTransparency = 1 - math.clamp(strength or 0.3, 0, 1),
+        ZIndex = z or 0, ThemeIgnore = true, Parent = parent,
+    })
+    if key then bindTheme(img, "ImageColor3", key) end
+    pcall(function() img.Interactable = false end)
+    local tex = glowTexture()
+    if type(tex) == "string" then
+        img.Image = tex
+    elseif tex then
+        if not pcall(function() img.ImageContent = tex end) then img.Visible = false end
+    else
+        img.Visible = false
+    end
+    return img
+end
+
+-- Animaciones en reposo (idle): tweens en bucle del motor (no gastan Lua por frame).
+-- Se encienden con Juice "Full"/"Subtle" y se detienen (volviendo a su valor de reposo) con "Off".
+local IDLE = {}
+-- decoraciones (chispas, goteos): se ocultan por completo con Juice = "Off"
+local DECOR = {}
+-- funciones a llamar cuando cambia el nivel de Juice (decoraciones que dependen de un estado)
+local JUICE_HOOKS = setmetatable({}, { __mode = "k" })
+-- lvl = nivel minimo de Juice para que se vea (1 = Subtle, 2 = Full). Por defecto 1.
+local function decor(inst, lvl)
+    lvl = lvl or 1
+    table.insert(DECOR, { inst, lvl })
+    inst.Visible = juice() >= lvl
+    return inst
+end
+-- lo decorativo nunca recibe clicks ni tapa controles
+local function noInput(inst)
+    pcall(function() inst.Interactable = false end)
+    pcall(function() inst.Active = false end)
+    return inst
+end
+-- lvl = nivel minimo de Juice para que corra (por defecto 1): con un nivel menor el tween se detiene.
+local function idle(inst, info, goal, rest, lvl)
+    local e = { inst = inst, info = info, goal = goal, rest = rest, lvl = lvl or 1 }
+    if juice() >= e.lvl then
+        e.tw = TweenService:Create(inst, info, goal)
+        e.tw:Play()
+    end
+    table.insert(IDLE, e)
+    return e
+end
+local function refreshIdle()
+    local cur = juice()
+    for i = #IDLE, 1, -1 do
+        local e = IDLE[i]
+        local on = cur >= e.lvl
+        if not e.inst.Parent then
+            if e.tw then e.tw:Cancel() end
+            table.remove(IDLE, i)
+        elseif on and not e.tw then
+            e.tw = TweenService:Create(e.inst, e.info, e.goal)
+            e.tw:Play()
+        elseif not on and e.tw then
+            e.tw:Cancel()
+            e.tw = nil
+            for k, v in pairs(e.rest) do pcall(function() e.inst[k] = v end) end
+        end
+    end
+    local lvl = juice()
+    for i = #DECOR, 1, -1 do
+        local d = DECOR[i]
+        if d[1].Parent then d[1].Visible = lvl >= d[2] else table.remove(DECOR, i) end
+    end
+    for inst, fn in pairs(JUICE_HOOKS) do
+        if inst.Parent then pcall(fn) end
+    end
+end
+Library._refreshIdle = refreshIdle
+local function loopInfo(t, reverses, delay)
+    return TweenInfo.new(t, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, reverses ~= false, delay or 0)
+end
+
+-- Chispas de colores (sprinkles) de reposteria. Los colores salen del tema, asi siguen a cada sabor.
+-- registro debil de todas las chispas (para el modo arcoiris)
+local SPRINKLES = setmetatable({}, { __mode = "k" })
+local function sprinkle(parent, i, pos, rot, z)
+    local key = SPRINKLE_KEYS[(i - 1) % #SPRINKLE_KEYS + 1]
+    local s = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = pos, Size = UDim2.fromOffset(5, 2), Rotation = rot,
+        BackgroundColor3 = Theme[key], ZIndex = z or 1, Parent = parent,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    bindTheme(s, "BackgroundColor3", key)
+    pcall(function() s.Interactable = false end)
+    SPRINKLES[s] = key
+    return s
+end
+
+-- Glaseado de dona para barras (slider / progreso / carga): chispas fijas sobre la pista + un brillo
+-- que recorre el glaseado cada pocos segundos. fill = la parte llena (su ancho es Size.X.Scale).
+-- Las chispas viven en una tira del ancho de la pista completa y se recortan con el relleno, asi no
+-- se estiran ni se mueven cuando el relleno crece. Devuelve nudge(): las chispas se acomodan un poco.
+local function glazeBar(fill, count, z)
+    z = z or 1
+    local clip = create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = z, Parent = fill,
+    })
+    pcall(function() clip.Interactable = false end)
+    decor(clip)
+    local strip = create("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = z, Parent = clip })
+    local function sync()
+        local a = fill.Size.X.Scale
+        strip.Size = UDim2.fromScale(1 / math.max(a, 0.001), 1)
+    end
+    fill:GetPropertyChangedSignal("Size"):Connect(sync)
+    sync()
+    local rnd = Random.new(count * 31 + 7)
+    local list = {}
+    for i = 1, count do
+        local rot = rnd:NextInteger(-70, 70)
+        local x = (i - 0.5) / count + rnd:NextNumber(-0.3, 0.3) / count
+        local s = sprinkle(strip, i, UDim2.new(x, 0, 0.5, rnd:NextInteger(-1, 1)), rot, z)
+        list[i] = { f = s, rot = rot }
+    end
+    -- brillo del glaseado (idle): una franja de luz cruza toda la barra cada ~4 s
+    local glint = create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = GLASS_WHITE, ZIndex = z, ThemeIgnore = true, Parent = strip,
+    })
+    local gg = create("UIGradient", { Offset = Vector2.new(-1, 0),
+        Transparency = nseq({ { 0, 1 }, { 0.44, 1 }, { 0.5, 0.5 }, { 0.56, 1 }, { 1, 1 } }), Parent = glint })
+    idle(gg, TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, false, 2.6),
+        { Offset = Vector2.new(1, 0) }, { Offset = Vector2.new(-1, 0) })
+    local last = 0
+    return function()
+        -- giro suave y corto (sin rebote): al arrastrar rapido no se ve "temblor", solo un acomodo fluido
+        if juice() == 0 or os.clock() - last < 0.16 then return end
+        last = os.clock()
+        for _, s in ipairs(list) do
+            tween(s.f, { Rotation = s.rot + math.random(-16, 16) }, 0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        end
+    end
+end
+
+----------------------------------------------------------------
+-- Reposteria para los easter eggs: donas decorativas y lluvias de chispas / galletas / donas.
+-- Todo usa pools (nada se crea por frame), no recibe clicks y respeta Config.Juice.
+----------------------------------------------------------------
+
+-- glaseado rosado de dona: sale del tema (Error aclarado con Text), funciona en los 8 sabores
+local function donutGlaze() return Theme.Error:Lerp(Theme.Text, 0.45) end
+local function cookieDough() return Theme.AccentDeep:Lerp(Theme.Warning, 0.35) end
+
+-- Golosinas decorativas: "cookie" (galleta con chispas de chocolate), "donut" (dona glaseada con chispas)
+-- o "chip" (chispa de chocolate). Al pasar el mouse giran o rebotan. Active = false: no bloquean clicks.
+-- lvl: nivel de Juice minimo (por defecto 2 = Full); false = sin registro (las usa la lluvia).
+local function treat(parent, kind, pos, size, z, rot, lvl)
+    z = z or 0
+    local root = create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = pos, Size = UDim2.fromOffset(size, size), Rotation = rot or 0,
+        BackgroundTransparency = 1, ZIndex = z, Parent = parent,
+    })
+    pcall(function() root.Active = false end)
+    if lvl ~= false then decor(root, lvl or 2) end
+    local function circle(sc, color, x, y)
+        return create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(x or 0.5, y or 0.5), Size = UDim2.fromScale(sc, sc),
+            BackgroundColor3 = color, ZIndex = z, Parent = root,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    end
+    local repaint
+    if kind == "donut" then
+        -- anillos con UIStroke: el hoyo es transparente de verdad
+        create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.56, 0.56),
+            BackgroundTransparency = 1, ZIndex = z, Parent = root,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }),
+            create("UIStroke", { Color = Theme.AccentDeep, Thickness = math.max(2, size * 0.2) }) })
+        local gs = create("UIStroke", { Color = donutGlaze(), Thickness = math.max(1, size * 0.13), ThemeIgnore = true })
+        create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.6, 0.6),
+            BackgroundTransparency = 1, ZIndex = z, Parent = root,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), gs })
+        for i = 1, 5 do
+            local a = i / 5 * TAU + 0.4
+            local s = sprinkle(root, i, UDim2.new(0.5 + math.cos(a) * 0.37, 0, 0.5 + math.sin(a) * 0.37, 0), math.deg(a) + 90, z)
+            s.Size = UDim2.fromOffset(math.max(3, math.floor(size * 0.16)), 2)
+        end
+        repaint = function() gs.Color = donutGlaze() end
+    elseif kind == "cookie" then
+        local body = circle(1, cookieDough())
+        sticker(body, 1.5, 0)
+        gloss(body, "full", 0.3, z)
+        for _, c in ipairs({ { 0.32, 0.36 }, { 0.64, 0.3 }, { 0.42, 0.66 }, { 0.7, 0.62 } }) do
+            local chip = circle(0.17, Theme.Chocolate, c[1], c[2])
+            bindTheme(chip, "BackgroundColor3", "Chocolate")
+        end
+        repaint = function() body.BackgroundColor3 = cookieDough() end
+    else
+        local c = circle(0.8, Theme.Chocolate)
+        bindTheme(c, "BackgroundColor3", "Chocolate")
+        create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.36, 0.34), Size = UDim2.fromScale(0.22, 0.22),
+            BackgroundColor3 = GLASS_WHITE, BackgroundTransparency = 0.6, ZIndex = z, ThemeIgnore = true, Parent = c,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    end
+    if repaint then REPAINT_HOOKS[root] = repaint end
+    -- hover: la galleta / chispa gira; la dona rebota
+    local sc = create("UIScale", { Parent = root })
+    local busy = false
+    root.MouseEnter:Connect(function()
+        if busy or juice() < 2 then return end
+        busy = true
+        if kind == "donut" then
+            sc.Scale = 1.3
+            tweenThen(sc, { Scale = 1 }, 0.6, function() busy = false end, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out)
+        else
+            local r0 = root.Rotation
+            tweenThen(root, { Rotation = r0 + 360 }, 0.7, function()
+                root.Rotation = r0
+                busy = false
+            end, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        end
+    end)
+    return root
+end
+
+-- lluvia corta de chispas (o migajas) desde la parte de arriba de 'area'. Usa el pool de particulas.
+local function rain(win, area, n, kind, minLevel)
+    if juice() < (minLevel or 2) or not win or not win.Gui or not area or not area.Parent then return end
+    local fx = fxPool(win)
+    local a, s = area.AbsolutePosition - win.Gui.AbsolutePosition, area.AbsoluteSize
+    local crumb = kind == "crumb"
+    for i = 1, n do
+        local p = fxGet(fx)
+        if not p then break end
+        local x, y0 = a.X + math.random() * s.X, a.Y + math.random() * 16
+        local fall = s.Y * (0.25 + math.random() * 0.35)
+        local t, d = 0.7 + math.random() * 0.5, math.random() * 0.3
+        p.BackgroundColor3 = crumb and ((i % 2 == 0) and Theme.Chocolate or Theme.AccentDeep) or sprinkleColor(i)
+        p.BackgroundTransparency = 1
+        p.Size = crumb and UDim2.fromOffset(4, 4) or UDim2.fromOffset(7, 2)
+        p.Rotation = math.random(0, 180)
+        p.Position = UDim2.fromOffset(x, y0)
+        p.Visible = true
+        task.delay(d / animSpeed(), function()
+            p.BackgroundTransparency = 0
+            tween(p, { Position = UDim2.fromOffset(x + math.random(-14, 14), y0 + fall),
+                Rotation = p.Rotation + math.random(-200, 200), BackgroundTransparency = 1 }, t,
+                Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end)
+        fxFree(fx, p, (t + d) / animSpeed() + 0.05)
+    end
+end
+
+-- lluvia de galletas (el logo real) o donas sobre toda la ventana. Pool propio: max 12 por tipo.
+local TREAT_MAX = 12
+local function treatRain(win, kind, n)
+    if juice() < 2 or not win or not win.Gui or not win._shell or not win._shell.Parent then return end
+    local fx = fxPool(win)
+    win._treatPool = win._treatPool or { cookie = { free = {}, n = 0 }, donut = { free = {}, n = 0 } }
+    local pool = win._treatPool[kind] or win._treatPool.cookie
+    local area = win._shell
+    local a, s = area.AbsolutePosition - win.Gui.AbsolutePosition, area.AbsoluteSize
+    for i = 1, n do
+        local t = table.remove(pool.free)
+        if not t then
+            if pool.n >= TREAT_MAX then break end
+            pool.n = pool.n + 1
+            if kind == "donut" then
+                t = treat(fx.layer, "donut", UDim2.new(), 26, 157, 0, false)
+            else
+                t = create("ImageLabel", {
+                    Image = win._logo or DEFAULT_LOGO, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(28, 28),
+                    ScaleType = Enum.ScaleType.Fit, ZIndex = 157, Parent = fx.layer,
+                })
+            end
+            noInput(t)
+            t.Visible = false
+        end
+        local x = a.X + math.random() * s.X
+        local y0, y1 = a.Y - 24, a.Y + s.Y + 24
+        local dur, d = 1.3 + math.random() * 0.9, (i - 1) * 0.08 + math.random() * 0.1
+        t.Position = UDim2.fromOffset(x, y0)
+        t.Rotation = math.random(0, 359)
+        t.Visible = true
+        task.delay(d / animSpeed(), function()
+            tween(t, { Position = UDim2.fromOffset(x + math.random(-30, 30), y1), Rotation = t.Rotation + math.random(-360, 360) },
+                dur, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end)
+        task.delay((d + dur) / animSpeed() + 0.05, function()
+            t.Visible = false
+            table.insert(pool.free, t)
+        end)
+    end
+end
+
+-- modo arcoiris: todas las chispas cambian de color unos segundos y luego vuelven al tema
+local function rainbow(seconds)
+    rainbowUntil = os.clock() + (seconds or 8)
+    if Library._rainbowOn then return end
+    Library._rainbowOn = true
+    task.spawn(function()
+        while os.clock() < rainbowUntil do
+            local k, now = 0, os.clock()
+            for s in pairs(SPRINKLES) do
+                if s.Parent then
+                    k = k + 1
+                    s.BackgroundColor3 = Color3.fromHSV((k * 0.13 + now * 0.5) % 1, 0.6, 1)
+                end
+            end
+            task.wait(0.12)
+        end
+        for s, key in pairs(SPRINKLES) do
+            if s.Parent then s.BackgroundColor3 = Theme[key] end
+        end
+        Library._rainbowOn = false
+    end)
+end
+
 local function emit(callback, ...)
     if callback then task.spawn(callback, ...) end
 end
@@ -688,8 +1349,108 @@ local function toHex(c)
     return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
 end
 
+----------------------------------------------------------------
+-- Iconos vectoriales dibujados con frames (no dependen de assets). Se usan por nombre:
+-- CreateTab("Main", "home"). Library.Icons lista los nombres disponibles.
+----------------------------------------------------------------
+local ICONS = {}
+local function iconKit(holder, s, z)
+    local tint = {}
+    local function bar(x, y, w, h, rot, round)
+        local f = create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(x * s, y * s),
+            Size = UDim2.fromOffset(math.max(w * s, 1.5), math.max(h * s, 1.5)), Rotation = rot or 0,
+            BackgroundColor3 = GLASS_WHITE, ThemeIgnore = true, ZIndex = z, Parent = holder,
+        }, { create("UICorner", { CornerRadius = round and UDim.new(1, 0) or UDim.new(0, 1) }) })
+        table.insert(tint, { f, "BackgroundColor3" })
+        return f
+    end
+    local function ring(x, y, w, h, th, square)
+        local st = create("UIStroke", { Color = GLASS_WHITE, Thickness = th or 1.8, ThemeIgnore = true })
+        create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(x * s, y * s),
+            Size = UDim2.fromOffset(w * s, h * s), BackgroundTransparency = 1, ZIndex = z, Parent = holder,
+        }, { create("UICorner", { CornerRadius = square and UDim.new(0, 2) or UDim.new(1, 0) }), st })
+        table.insert(tint, { st, "Color" })
+    end
+    return tint, bar, ring
+end
+ICONS.home = function(bar, ring)
+    bar(0.32, 0.36, 0.5, 0.13, -40) bar(0.68, 0.36, 0.5, 0.13, 40)
+    ring(0.5, 0.68, 0.52, 0.4, 1.8, true) bar(0.5, 0.78, 0.14, 0.2)
+end
+ICONS.settings = function(bar, ring)
+    ring(0.5, 0.5, 0.5, 0.5, 2.2)
+    for i = 0, 5 do
+        local a = math.rad(i * 60)
+        bar(0.5 + math.cos(a) * 0.38, 0.5 + math.sin(a) * 0.38, 0.17, 0.17, i * 60)
+    end
+end
+ICONS.user = function(bar) bar(0.5, 0.32, 0.36, 0.36, 0, true) bar(0.5, 0.82, 0.72, 0.34, 0, true) end
+ICONS.eye = function(bar, ring) ring(0.5, 0.5, 0.86, 0.5, 1.8) bar(0.5, 0.5, 0.26, 0.26, 0, true) end
+ICONS.sword = function(bar)
+    bar(0.58, 0.42, 0.13, 0.72, 45) bar(0.34, 0.66, 0.42, 0.12, 45) bar(0.2, 0.8, 0.12, 0.22, 45)
+end
+ICONS.bolt = function(bar) bar(0.58, 0.3, 0.14, 0.44, 22) bar(0.5, 0.5, 0.44, 0.13, -12) bar(0.42, 0.7, 0.14, 0.44, 22) end
+ICONS.list = function(bar)
+    for _, y in ipairs({ 0.26, 0.5, 0.74 }) do bar(0.2, y, 0.14, 0.14, 0, true) bar(0.6, y, 0.52, 0.12) end
+end
+ICONS.grid = function(bar)
+    for _, p in ipairs({ { 0.3, 0.3 }, { 0.7, 0.3 }, { 0.3, 0.7 }, { 0.7, 0.7 } }) do bar(p[1], p[2], 0.34, 0.34) end
+end
+ICONS.cookie = function(bar, ring)
+    ring(0.5, 0.5, 0.82, 0.82, 2)
+    bar(0.38, 0.38, 0.15, 0.15, 0, true) bar(0.64, 0.48, 0.15, 0.15, 0, true) bar(0.44, 0.67, 0.13, 0.13, 0, true)
+end
+ICONS.info = function(bar, ring) ring(0.5, 0.5, 0.86, 0.86, 1.8) bar(0.5, 0.6, 0.12, 0.34) bar(0.5, 0.31, 0.13, 0.13, 0, true) end
+ICONS.star = function(bar)
+    for i = 0, 4 do bar(0.5, 0.5, 0.16, 0.9, i * 36, true) end
+end
+ICONS.palette = ICONS.cookie
+ICONS.gear = ICONS.settings
+ICONS.player = ICONS.user
+ICONS.visual = ICONS.eye
+ICONS.combat = ICONS.sword
+ICONS.misc = ICONS.bolt
+Library.Icons = {}
+for k in pairs(ICONS) do table.insert(Library.Icons, k) end
+table.sort(Library.Icons)
+
+-- si una tab no trae icono (o trae una letra) se adivina uno por su nombre
+local ICON_GUESS = {
+    { "setting", "settings" }, { "config", "settings" }, { "option", "settings" },
+    { "home", "home" }, { "main", "home" }, { "inicio", "home" },
+    { "player", "user" }, { "local", "user" }, { "character", "user" }, { "jugador", "user" },
+    { "visual", "eye" }, { "esp", "eye" }, { "render", "eye" },
+    { "combat", "sword" }, { "aim", "sword" }, { "pvp", "sword" }, { "fight", "sword" },
+    { "misc", "bolt" }, { "extra", "bolt" }, { "util", "bolt" },
+    { "element", "grid" }, { "farm", "list" }, { "auto", "list" }, { "list", "list" },
+    { "flavor", "cookie" }, { "theme", "cookie" }, { "info", "info" }, { "about", "info" }, { "credit", "star" },
+}
+local function guessIcon(name)
+    local n = string.lower(tostring(name or ""))
+    for _, g in ipairs(ICON_GUESS) do
+        if n:find(g[1], 1, true) then return g[2] end
+    end
+    return nil
+end
+
+-- dibuja el icono `name` dentro de holder; devuelve una funcion para cambiarle el color
+local function drawIcon(name, holder, size, color, z)
+    local fn = ICONS[name]
+    if not fn then return nil end
+    local tint, bar, ring = iconKit(holder, size, z or holder.ZIndex)
+    fn(bar, ring)
+    local function paint(c, t)
+        for _, p in ipairs(tint) do tween(p[1], { [p[2]] = c }, t or 0) end
+    end
+    paint(color or Theme.Text)
+    return paint
+end
+
 local function resolveIcon(icon, fallbackName)
     local fallback = tostring(fallbackName or "?"):sub(1, 1):upper()
+    if type(icon) == "string" and ICONS[string.lower(icon)] then return "draw", string.lower(icon) end
     if type(icon) == "table" then
         local asset = icon.Image or icon.Asset or icon.AssetId or icon.Id
         if asset ~= nil then
@@ -899,8 +1660,11 @@ local function decorate(section, obj, frame, o, scope)
         if not state and not overlay then
             overlay = create("TextButton", {
                 Text = "", Size = UDim2.fromScale(1, 1), ZIndex = 20, Active = true,
-                BackgroundColor3 = Theme.Panel, BackgroundTransparency = 0.45, Parent = frame,
+                BackgroundColor3 = Theme.Background, BackgroundTransparency = 0.38, Parent = frame,
             }, { corner(section.Window.Config.Element.Corner) })
+            -- deshabilitado: velo oscuro + borde sutil (se lee "apagado" sin perder el texto)
+            create("UIStroke", { Color = Theme.Stroke, Thickness = 1, Transparency = 0.5,
+                ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Parent = overlay })
         end
         if overlay then overlay.Visible = not state end
     end
@@ -1001,6 +1765,7 @@ function Library:CreateWindow(opts)
     if type(state.key) == "string" and Enum.KeyCode[state.key] then self.ToggleKey = Enum.KeyCode[state.key] end
     if type(state.anim) == "boolean" then Library.Config.Animations = state.anim end
     if type(state.speed) == "number" then Library.Config.AnimationSpeed = state.speed end
+    if type(state.juice) == "string" then Library.Config.Juice = state.juice end
     if type(state.tips) == "boolean" then cfg.Tooltip.Enabled = state.tips end
     if type(state.theme) == "string" and Library.Themes[state.theme] then
         Library.CurrentTheme = state.theme
@@ -1051,18 +1816,20 @@ function Library:CreateWindow(opts)
 
     if W.Shadow ~= false then
         -- sombra 9-slice (se dibuja debajo de la ventana porque se crea antes que el shell)
+        -- sombra calida (cafe muy oscuro, nunca gris frio), un poco mas abajo: la ventana "flota"
         create("ImageLabel", {
-            Image = "rbxassetid://6014261993", ImageColor3 = rgb(0, 0, 0), ImageTransparency = 0.45,
+            Image = "rbxassetid://6014261993", ImageColor3 = Theme.Shadow, ImageTransparency = 0.3,
             ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(49, 49, 450, 450),
-            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 4),
-            Size = UDim2.new(1, 44, 1, 44), ThemeIgnore = true, Parent = root,
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 8),
+            Size = UDim2.new(1, 54, 1, 54), Parent = root,
         })
     end
 
+    -- contorno chocolate tipo sticker, como el borde del logo
     local shell = create("Frame", {
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Background,
         ClipsDescendants = true, Parent = root,
-    }, { corner(W.Corner), stroke(Theme.Outline, 1), padding(SHELL_PAD, SHELL_PAD, SHELL_PAD, SHELL_PAD) })
+    }, { corner(W.Corner), stroke(Theme.Chocolate, 1.5, 0.1), padding(SHELL_PAD, SHELL_PAD, SHELL_PAD, SHELL_PAD) })
     self._shell = shell
     -- leve degradado vertical: le da profundidad al fondo sin cambiar el color base
     create("UIGradient", {
@@ -1070,6 +1837,10 @@ function Library:CreateWindow(opts)
         Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 205, 205)),
         Parent = shell,
     })
+
+    -- ambiente: glows calidos de muy baja opacidad detras del header/logo y en la esquina del sidebar
+    glowBlob(shell, UDim2.new(0, 20, 1, 10), UDim2.fromOffset(300, 220), Theme.Warning, 0.1, 0, "Warning")
+    self._logo = logo
 
     local top = create("Frame", {
         Size = UDim2.new(1, 0, 0, TOP_H), BackgroundTransparency = 1, ZIndex = 5, Parent = shell,
@@ -1079,15 +1850,23 @@ function Library:CreateWindow(opts)
         BackgroundColor3 = Theme.Stroke, BackgroundTransparency = 0.55, Parent = shell,
     })
     if W.AccentLine ~= false then
-        create("Frame", {
-            Position = UDim2.fromOffset(14, TOP_H + 5), Size = UDim2.new(1, -28, 0, 1), ZIndex = 2,
+        local line = create("Frame", {
+            Position = UDim2.fromOffset(14, TOP_H + 4), Size = UDim2.new(1, -28, 0, 2), ZIndex = 2,
             BackgroundColor3 = Theme.Accent, Parent = shell,
-        }, { create("UIGradient", {
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), create("UIGradient", {
             Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(0.35, 0.6),
+                NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.4, 0.45),
                 NumberSequenceKeypoint.new(1, 1),
             }),
         }) })
+        -- idle: un destello recorre la linea lentamente
+        local glint = create("Frame", {
+            Size = UDim2.fromScale(1, 1), BackgroundColor3 = GLASS_WHITE, ZIndex = 3, ThemeIgnore = true, Parent = line,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        local gg = create("UIGradient", { Offset = Vector2.new(-1, 0),
+            Transparency = nseq({ { 0, 1 }, { 0.44, 1 }, { 0.5, 0.15 }, { 0.56, 1 }, { 1, 1 } }), Parent = glint })
+        idle(gg, TweenInfo.new(2.6, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, false, 2.2),
+            { Offset = Vector2.new(1, 0) }, { Offset = Vector2.new(-1, 0) })
     end
 
     local nBtns = (W.Searchable ~= false and 1 or 0) + (W.Minimizable and 1 or 0) + (W.Closable and 1 or 0)
@@ -1096,12 +1875,67 @@ function Library:CreateWindow(opts)
 
     local titleX = 14
     if logo then
-        create("ImageLabel", {
-            Image = logo, AnchorPoint = Vector2.new(0, 0.5),
-            Position = UDim2.new(0, 12, 0.5, 0), Size = UDim2.fromOffset(32, 32),
+        -- resplandor calido compacto detras del logo (56px = 1.75x el logo): radial suave que cae a 0,
+        -- respira con poco rango (escala 1 -> 1.06 y algo mas de brillo). Radio max ~30px: no toca el borde.
+        local lg = glowBlob(top, UDim2.new(0, 28, 0.5, 0), UDim2.fromOffset(56, 56), Theme.Accent, 0.38, 5, "Accent")
+        local lgScale = create("UIScale", { Parent = lg })
+        idle(lgScale, loopInfo(2.2), { Scale = 1.06 }, { Scale = 1 })
+        idle(lg, loopInfo(2.2), { ImageTransparency = 0.54 }, { ImageTransparency = 0.62 })
+        local logoImg = create("ImageLabel", {
+            Image = logo, AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.new(0, 28, 0.5, 0), Size = UDim2.fromOffset(32, 32),
             ScaleType = Enum.ScaleType.Fit, ZIndex = 6, Parent = top,
         })
+        local logoScale = create("UIScale", { Parent = logoImg })
+        idle(logoScale, loopInfo(1.9), { Scale = 1.05 }, { Scale = 1 })
+        -- easter egg: 5 clicks rapidos en el logo -> la galleta da una vuelta con rebote y suelta migajas
+        local clicks, lastClick, spinning = 0, 0, false
+        logoImg.InputBegan:Connect(function(input)
+            if not isPress(input) or juice() == 0 then return end
+            local now = os.clock()
+            clicks = (now - lastClick < 0.6) and clicks + 1 or 1
+            lastClick = now
+            -- easter egg 2: seguir clickeando hasta 12 -> lluvia de galletas por toda la ventana
+            if clicks >= 12 then
+                clicks = 0
+                treatRain(self, "cookie", 12)
+                rain(self, shell, 10, "crumb", 2)
+                return
+            end
+            if spinning then return end -- durante la vuelta los clicks siguen contando para la lluvia
+            if clicks ~= 5 then
+                -- cada click un "toque"; despues de la vuelta la galleta tiembla cada vez mas fuerte
+                local amp = clicks > 5 and 14 or 8
+                logoImg.Rotation = (clicks % 2 == 0) and amp or -amp
+                tween(logoImg, { Rotation = 0 }, 0.3, clicks > 5 and Enum.EasingStyle.Elastic or Enum.EasingStyle.Back,
+                    Enum.EasingDirection.Out)
+                return
+            end
+            spinning = true
+            logoImg.Rotation = 0
+            burst(self, logoImg, 8, "crumb")
+            tweenThen(logoImg, { Rotation = 360 }, 0.75, function()
+                logoImg.Rotation = 0
+                spinning = false
+            end, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            task.delay(0.55 / animSpeed(), function() burst(self, logoImg, 6, "spark") end)
+        end)
+        self._logoImg = logoImg
         titleX = 54
+    end
+
+    -- ola de glaseado al cambiar de sabor: una franja del color nuevo barre la ventana
+    self._flavorWave = function()
+        if juice() < 2 or not shell.Parent or not shell.Visible then return end
+        local wave = noInput(create("Frame", {
+            Position = UDim2.fromOffset(-SHELL_PAD, -SHELL_PAD), Size = UDim2.new(1, SHELL_PAD * 2, 1, SHELL_PAD * 2),
+            BackgroundColor3 = Theme.Accent, ZIndex = 50, ThemeIgnore = true, Parent = shell,
+        }))
+        local g = create("UIGradient", { Rotation = 12, Offset = Vector2.new(-1.2, 0),
+            Transparency = nseq({ { 0, 1 }, { 0.36, 1 }, { 0.45, 0.6 }, { 0.5, 0.38 }, { 0.55, 0.6 }, { 0.64, 1 }, { 1, 1 } }),
+            Parent = wave })
+        tweenThen(g, { Offset = Vector2.new(1.2, 0) }, 0.8, function() wave:Destroy() end,
+            Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
     end
 
     local titleBox = create("Frame", {
@@ -1109,7 +1943,7 @@ function Library:CreateWindow(opts)
         Size = UDim2.new(1, -(titleX + btnsW + 32), 1, 0), ZIndex = 6, Parent = top,
     }, { listLayout(0, { VerticalAlignment = Enum.VerticalAlignment.Center }) })
     self._title = label({
-        Text = W.Title, Font = Fonts.Title, TextSize = 17, ZIndex = 6,
+        Text = W.Title, Font = Fonts.Brand, TextSize = 18, ZIndex = 6,
         Size = UDim2.new(1, 0, 0, 20), LayoutOrder = 1, Parent = titleBox,
     })
     self._subtitle = label({
@@ -1206,18 +2040,104 @@ function Library:CreateWindow(opts)
         Size = UDim2.new(0, SB, 1, 0), BackgroundTransparency = 1, Parent = body,
     })
 
+    -- textura muy tenue de "chispas" (sprinkles) en la parte baja del sidebar, detras de todo
+    do
+        local spots = {
+            { 0.18, 0.42, 20 }, { 0.72, 0.47, -35 }, { 0.42, 0.53, 60 }, { 0.85, 0.58, 10 }, { 0.12, 0.63, -70 },
+            { 0.55, 0.66, 25 }, { 0.3, 0.72, -15 }, { 0.78, 0.75, 80 }, { 0.15, 0.81, 40 }, { 0.6, 0.84, -50 },
+            { 0.38, 0.9, 5 }, { 0.88, 0.92, -25 },
+        }
+        local cols = { "Accent", "Warning", "AccentHi", "Accent" }
+        for i, s in ipairs(spots) do
+            local f = create("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(s[1], s[2]), Rotation = s[3],
+                Size = UDim2.fromOffset(i % 3 == 0 and 3 or 7, 3), BackgroundColor3 = Theme[cols[i % 4 + 1]],
+                BackgroundTransparency = 0.86, ZIndex = 0, Parent = sidebar,
+            }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            pcall(function() f.Interactable = false end)
+            -- polvo de azucar: cada chispa flota muy lento (sube unos px y gira un poco), cada una a su ritmo
+            idle(f, loopInfo(5 + (i % 5) * 0.9, true, (i % 4) * 0.7),
+                { Position = UDim2.new(s[1], (i % 2 == 0) and 3 or -3, s[2], -6), Rotation = s[3] + ((i % 2 == 0) and 18 or -18) },
+                { Position = UDim2.fromScale(s[1], s[2]), Rotation = s[3] })
+        end
+    end
+
+    local statusCard = W.ShowProfile and W.StatusCard ~= false
     self._nav = create("ScrollingFrame", {
-        BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, W.ShowProfile and -62 or 0),
+        BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, W.ShowProfile and (statusCard and -116 or -62) or 0),
         CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        ScrollBarThickness = 0, Parent = sidebar,
+        ScrollBarThickness = 0, ZIndex = 2, Parent = sidebar,
     }, { padding(8, 8, 8, 4), listLayout(4) })
+
+    -- Pildora del tab activo: vive fuera del nav (debajo) para poder viajar libre entre tabs.
+    -- Al cambiar de tab se estira hasta cubrir el viejo y el nuevo, y luego se asienta con rebote.
+    do
+        -- contenedor que se mueve; adentro: glow suave detras y la pildora dorada glaseada encima
+        local pill = create("Frame", { BackgroundTransparency = 1, Visible = false, ZIndex = 1, Parent = sidebar })
+        local glow = glowBlob(pill, UDim2.fromScale(0.5, 0.55), UDim2.new(1, 30, 1, 26), Theme.Accent, 0.26, 1, "Accent")
+        local body = create("Frame", {
+            Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Accent, ZIndex = 2, Parent = pill,
+        }, { corner(8), sticker(nil, 1.5, 0) })
+        sheen(body, 0.16)
+        gloss(body, 8, 0.32, 2)
+        -- el glow respira muy lento (idle)
+        local glowScale = create("UIScale", { Parent = glow })
+        idle(glowScale, loopInfo(2.2), { Scale = 1.12 }, { Scale = 1 })
+        local nav = self._nav
+        local pillId, pillBtn = 0, nil
+        local function rectOf(btn)
+            -- coordenadas sin escala dentro del sidebar (la ventana usa UIScale)
+            local k = sidebar.AbsoluteSize.X / math.max(sidebar.Size.X.Offset, 1)
+            if k <= 0.01 then k = 1 end
+            local p = (btn.AbsolutePosition - sidebar.AbsolutePosition) / k
+            return p, btn.AbsoluteSize / k
+        end
+        local function inNav(btn)
+            local na, ns = nav.AbsolutePosition, nav.AbsoluteSize
+            local cy = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y / 2
+            return btn.Visible and cy >= na.Y and cy <= na.Y + ns.Y
+        end
+        local function movePill(btn, animate)
+            pillBtn = btn
+            pillId = pillId + 1
+            if not btn or not btn.Parent then pill.Visible = false return end
+            local p, s = rectOf(btn)
+            local goalP, goalS = UDim2.fromOffset(p.X, p.Y), UDim2.fromOffset(s.X, s.Y)
+            local wasVisible = pill.Visible
+            pill.Visible = inNav(btn)
+            if not animate or not wasVisible or juice() == 0 then
+                if animate and wasVisible then
+                    tween(pill, { Position = goalP, Size = goalS }, 0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                else
+                    pill.Position, pill.Size = goalP, goalS
+                end
+                return
+            end
+            local id = pillId
+            local op, osz = pill.Position, pill.Size
+            local top = math.min(op.Y.Offset, p.Y)
+            local bottom = math.max(op.Y.Offset + osz.Y.Offset, p.Y + s.Y)
+            tweenThen(pill, { Position = UDim2.fromOffset(p.X, top), Size = UDim2.fromOffset(s.X, bottom - top) }, 0.12, function()
+                if id ~= pillId then return end
+                tween(pill, { Position = goalP, Size = goalS }, juice() >= 2 and 0.34 or 0.24,
+                    juice() >= 2 and Enum.EasingStyle.Back or Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            end, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        end
+        self._movePill = movePill
+        -- sigue al tab si el nav hace scroll o cambia el tamano (modo compacto, resize)
+        local function follow() if pillBtn then movePill(pillBtn, false) end end
+        nav:GetPropertyChangedSignal("CanvasPosition"):Connect(follow)
+        local navList = nav:FindFirstChildOfClass("UIListLayout")
+        if navList then navList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() task.defer(follow) end) end
+        sidebar:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() task.defer(follow) end)
+    end
 
     local profile, avatar, profileNames
     if W.ShowProfile then
         profile = create("Frame", {
             AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -8),
             Size = UDim2.new(1, -16, 0, 44), BackgroundColor3 = Theme.Panel, Parent = sidebar,
-        }, { corner(9), stroke(Theme.Stroke, 1, 0.6) })
+        }, { corner(8), stroke(Theme.Stroke, 1, 0.6) })
         avatar = create("ImageLabel", {
             AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 8, 0.5, 0),
             Size = UDim2.fromOffset(28, 28), BackgroundColor3 = Theme.Input, BackgroundTransparency = 0,
@@ -1240,13 +2160,67 @@ function Library:CreateWindow(opts)
             Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 1, Parent = profileNames })
         label({ Text = "@" .. LocalPlayer.Name, TextSize = 10, TextColor3 = Theme.Dim,
             Size = UDim2.new(1, 0, 0, 12), LayoutOrder = 2, Parent = profileNames })
+        topLight(profile, 9, 0.9)
     end
 
-    -- el contenido vive en un panel propio, un tono mas claro que el fondo
+    -- bloque de estado sobre el perfil: mini galleta + nombre del hub + tiempo de sesion
+    local status, statusTexts
+    if statusCard then
+        status = create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -58),
+            Size = UDim2.new(1, -16, 0, 46), BackgroundColor3 = Theme.Element, Parent = sidebar,
+        }, { corner(8), sticker(nil, 1.5, 0.25) })
+        topLight(status, 8, 0.88)
+        -- el logo real de la ventana (opts.Logo / Config.Window.Logo) con un glow muy sutil detras
+        glowBlob(status, UDim2.new(0, 22, 0.5, 0), UDim2.fromOffset(44, 44), Theme.Accent, 0.24, 1, "Accent")
+        create("ImageLabel", {
+            Image = logo or DEFAULT_LOGO, AnchorPoint = Vector2.new(0.5, 0.5),
+            Position = UDim2.new(0, 22, 0.5, 0), Size = UDim2.fromOffset(28, 28),
+            ScaleType = Enum.ScaleType.Fit, BackgroundTransparency = 1, ZIndex = 2, Parent = status,
+        })
+        local texts = create("Frame", {
+            BackgroundTransparency = 1, Position = UDim2.fromOffset(44, 0), Size = UDim2.new(1, -50, 1, 0), ZIndex = 2,
+            Parent = status,
+        }, { listLayout(0, { VerticalAlignment = Enum.VerticalAlignment.Center }) })
+        label({ Text = tostring(W.Title), Font = Fonts.Brand, TextSize = 13, ZIndex = 2,
+            Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 1, Parent = texts })
+        local live = create("Frame", { BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 13), LayoutOrder = 2,
+            ZIndex = 2, Parent = texts })
+        local dotOn = create("Frame", {
+            AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(6, 6),
+            BackgroundColor3 = Theme.Success, ZIndex = 2, Parent = live,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        idle(dotOn, loopInfo(0.9), { BackgroundTransparency = 0.6 }, { BackgroundTransparency = 0 })
+        local up = label({ Text = "Online", TextSize = 10, TextColor3 = Theme.Muted, RichText = true, ZIndex = 2,
+            Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -10, 1, 0), Parent = live })
+        statusTexts = texts
+        -- tiempo de sesion: se actualiza una vez por segundo (barato)
+        local t0 = os.clock()
+        task.spawn(function()
+            while gui.Parent do
+                local s = math.floor(os.clock() - t0)
+                local hex = toHex(Theme.Accent)
+                up.Text = string.format('Online  <font color="%s">%02d:%02d</font>', hex, math.floor(s / 60), s % 60)
+                task.wait(1)
+            end
+        end)
+    end
+
+    -- sombra calida entre capas: el panel de contenido "flota" sobre el fondo
+    local contentShadow = create("ImageLabel", {
+        Image = "rbxassetid://6014261993", ImageColor3 = Theme.Shadow, ImageTransparency = 0.35,
+        ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(49, 49, 450, 450),
+        Position = UDim2.fromOffset(SB + 10 - 16, -12), Size = UDim2.new(1, -(SB + 10) + 32, 1, 32), Parent = body,
+    })
+    -- el contenido vive en un panel propio, un tono mas claro que el fondo, con contorno chocolate
     local content = create("Frame", {
         Position = UDim2.fromOffset(SB + 10, 0), Size = UDim2.new(1, -(SB + 10), 1, 0),
         BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = body,
-    }, { corner(10), stroke(Theme.Stroke, 1, 0.65) })
+    }, { corner(12), sticker(nil, 1.5, 0.25) })
+    topLight(content, 12, 0.9, 2)
+    self._contentShadow = contentShadow
+    -- glow caramelo muy tenue en la esquina superior derecha del panel
+    glowBlob(content, UDim2.new(1, -20, 0, 10), UDim2.fromOffset(320, 220), Theme.Warning, 0.1, 0, "Warning")
     self._content = content
 
     do
@@ -1286,7 +2260,8 @@ function Library:CreateWindow(opts)
             Size = UDim2.fromOffset(0, 0), LayoutOrder = 2, Parent = group,
         })
         c2.Parent = tBody
-        self._tip = { group = group, title = tTitle, body = tBody, limits = { c1, c2 } }
+        self._tip = { group = group, title = tTitle, body = tBody, limits = { c1, c2 },
+            scale = create("UIScale", { Parent = group }) }
     end
 
     local FLOAT_SIZE = 74
@@ -1304,7 +2279,7 @@ function Library:CreateWindow(opts)
             Parent = floating,
         })
     else
-        floatLogo = label({ Text = "C", Font = Fonts.Title, TextSize = 28, TextColor3 = Theme.Accent,
+        floatLogo = label({ Text = "C", Font = Fonts.Brand, TextSize = 30, TextColor3 = Theme.Accent,
             TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center,
             Size = UDim2.fromScale(1, 1), Parent = floating })
     end
@@ -1329,20 +2304,41 @@ function Library:CreateWindow(opts)
                     startPos.Y.Scale, startPos.Y.Offset + d.Y))
             end
         end, function()
-            if not moved then self:Toggle() else self:_saveState() end
+            if not moved then
+                -- click: la galleta se aplasta y suelta migajas
+                burst(self, floatLogo, 6, "crumb")
+                self:Toggle()
+            else
+                self:_saveState()
+            end
         end)
         floating.MouseEnter:Connect(function()
-            tween(floatLogo, { Size = UDim2.fromScale(1.08, 1.08) }, 0.15)
+            tween(floatLogo, { Size = UDim2.fromScale(1.08, 1.08), Rotation = juice() > 0 and -8 or 0 }, 0.22,
+                Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         end)
         floating.MouseLeave:Connect(function()
-            tween(floatLogo, { Size = UDim2.fromScale(1, 1) }, 0.15)
+            tween(floatLogo, { Size = UDim2.fromScale(1, 1), Rotation = 0 }, 0.2)
         end)
         floating.MouseButton1Down:Connect(function()
-            tween(floatLogo, { Size = UDim2.fromScale(0.9, 0.9) }, 0.1)
+            -- squash: mas ancha que alta, como masa apretada
+            tween(floatLogo, { Size = juice() > 0 and UDim2.fromScale(1.02, 0.84) or UDim2.fromScale(0.9, 0.9) }, 0.08)
         end)
         floating.MouseButton1Up:Connect(function()
-            tween(floatLogo, { Size = UDim2.fromScale(1, 1) }, 0.15, Enum.EasingStyle.Back)
+            tween(floatLogo, { Size = UDim2.fromScale(1, 1) }, juice() >= 2 and 0.5 or 0.2,
+                juice() >= 2 and Enum.EasingStyle.Elastic or Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         end)
+        -- respiracion muy sutil en reposo: un solo tween en bucle del motor (no gasta un loop de Lua)
+        local breathe = create("UIScale", { Parent = floating })
+        local breatheTw
+        self._breathe = function()
+            if breatheTw then breatheTw:Cancel() breatheTw = nil end
+            breathe.Scale = 1
+            if juice() > 0 then
+                breatheTw = TweenService:Create(breathe, TweenInfo.new(1.8, Enum.EasingStyle.Sine,
+                    Enum.EasingDirection.InOut, -1, true), { Scale = 1.035 })
+                breatheTw:Play()
+            end
+        end
     end
 
     -- FloatingButton = false en CreateWindow oculta el boton (tambien en touch)
@@ -1361,7 +2357,7 @@ function Library:CreateWindow(opts)
         searchPage = create("CanvasGroup", {
             Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Panel, ZIndex = 20,
             Visible = false, GroupTransparency = 1, Active = true, Parent = content,
-        }, { corner(10) })
+        }, { corner(12) })
         -- en estilo Glass sigue siendo opaco: si no, las tabs de detras se ven a traves de la busqueda
         searchPage:SetAttribute("GlassSolid", true)
         local barStroke = stroke(Theme.Stroke, 1, 0.3)
@@ -1393,8 +2389,9 @@ function Library:CreateWindow(opts)
             tween(clearBtn, { BackgroundColor3 = Theme.Input }, 0.12)
             paintCross(Theme.Muted, 0.12)
         end)
-        sbox.Focused:Connect(function() tween(barStroke, { Color = Theme.Accent, Transparency = 0 }, 0.15) end)
-        sbox.FocusLost:Connect(function() tween(barStroke, { Color = Theme.Stroke, Transparency = 0.3 }, 0.15) end)
+        local barRing = focusRing(barStroke, 1, "Stroke", 0.3)
+        sbox.Focused:Connect(function() barRing(true) end)
+        sbox.FocusLost:Connect(function() barRing(false) end)
 
         local countLbl = label({
             Text = "", TextSize = 11, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(14, 52),
@@ -1449,6 +2446,13 @@ function Library:CreateWindow(opts)
                 tween(ind, { BackgroundTransparency = 1 }, 0.12)
             end)
             row.Activated:Connect(function() self:_goTo(e) end)
+            -- los primeros resultados entran escalonados
+            if order <= 12 and juice() > 0 then
+                local sc = create("UIScale", { Scale = 0.94, Parent = row })
+                task.delay((order - 1) * 0.022 / animSpeed(), function()
+                    if sc.Parent then tween(sc, { Scale = 1 }, 0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out) end
+                end)
+            end
         end
 
         runSearch = function()
@@ -1512,6 +2516,8 @@ function Library:CreateWindow(opts)
         -- debounce: con menus grandes no se reconstruyen los resultados en cada tecla
         local searchSeq = 0
         sbox:GetPropertyChangedSignal("Text"):Connect(function()
+            -- easter egg: palabras secretas (cookie, donut, rainbow...) en la busqueda
+            if Library._secretWord then Library._secretWord(sbox.Text) end
             searchSeq = searchSeq + 1
             local seq = searchSeq
             task.delay(0.08, function()
@@ -1621,6 +2627,7 @@ function Library:CreateWindow(opts)
             avatar.AnchorPoint = c and Vector2.new(0.5, 0.5) or Vector2.new(0, 0.5)
             avatar.Position = c and UDim2.new(0.5, 0, 0.5, 0) or UDim2.new(0, 8, 0.5, 0)
         end
+        if statusTexts then statusTexts.Visible = not c end
         for _, cat in ipairs(self._cats) do cat.Visible = not c end
         for _, t in ipairs(self.Tabs) do t:_setCompact(c) end
     end
@@ -1653,6 +2660,8 @@ function Library:CreateWindow(opts)
         sidebar.Size = UDim2.new(0, SBw, 1, 0)
         content.Position = UDim2.fromOffset(SBw + 10, 0)
         content.Size = UDim2.new(1, -(SBw + 10), 1, 0)
+        contentShadow.Position = UDim2.fromOffset(SBw + 10 - 16, -12)
+        contentShadow.Size = UDim2.new(1, -(SBw + 10) + 32, 1, 32)
         body.Size = UDim2.new(1, 0, 0, bh)
 
         if not self.Minimized then
@@ -1790,6 +2799,7 @@ function Library:CreateWindow(opts)
             end
         end
         if searchBtnIcon then searchBtnIcon.set(self._searchOpen and Theme.Accent or Theme.Muted, 0) end
+        if self._statusIcon then self._statusIcon() end
     end
 
     fit()
@@ -1823,12 +2833,92 @@ function Library:CreateWindow(opts)
         root.Visible = false
         self:_playIntro()
     else
-        tween(uiScale, { Scale = baseScale }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        self:_popOpen()
     end
+    if self._breathe then self._breathe() end
     return self
 end
 
+-- aparece con "pop": escala 0.9 -> ~1.02 -> 1 (Back). Con Juice = "Off" es un acercamiento suave.
+function WindowMT:_popOpen()
+    local base = self._baseScale()
+    if juice() == 0 then
+        self._scale.Scale = base * 0.96
+        tween(self._scale, { Scale = base }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    else
+        self._scale.Scale = base * 0.9
+        tween(self._scale, { Scale = base }, juice() >= 2 and 0.42 or 0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+    end
+end
+
+----------------------------------------------------------------
+-- Easter eggs y sorpresas (con Juice "Full").
+-- Tambien se pueden lanzar a mano: Library:CookieRain(), :DonutRain(), :Rainbow(seg), :ChocolateRush()
+----------------------------------------------------------------
+local function eachWin(fn)
+    for _, w in ipairs(Library.Windows) do
+        if w._shell and w._shell.Parent then pcall(fn, w) end
+    end
+end
+function Library:CookieRain() eachWin(function(w) treatRain(w, "cookie", 12) end) end
+function Library:DonutRain() eachWin(function(w) treatRain(w, "donut", 12) end) end
+function Library:Rainbow(seconds)
+    if juice() < 2 then return end
+    rainbow(seconds or 10)
+    eachWin(function(w) rain(w, w._shell, 18, "sprinkle", 2) end)
+end
+local SECRET_WORDS = {
+    cookie = "CookieRain", cookies = "CookieRain", galleta = "CookieRain", galletas = "CookieRain",
+    donut = "DonutRain", donuts = "DonutRain", dona = "DonutRain", donas = "DonutRain",
+    rainbow = "Rainbow", arcoiris = "Rainbow", sprinkles = "Rainbow", chispas = "Rainbow",
+}
+function Library._secretWord(text)
+    local w = string.lower((tostring(text or ""):match("^%s*(.-)%s*$")))
+    local fn = SECRET_WORDS[w]
+    if fn and juice() >= 2 then Library[fn](Library) end
+end
+
+-- codigo Konami: arriba arriba abajo abajo izquierda derecha izquierda derecha B A
+do
+    local KONAMI = {
+        Enum.KeyCode.Up, Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Down, Enum.KeyCode.Left,
+        Enum.KeyCode.Right, Enum.KeyCode.Left, Enum.KeyCode.Right, Enum.KeyCode.B, Enum.KeyCode.A,
+    }
+    local kIdx = 0
+    UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode == KONAMI[kIdx + 1] then
+            kIdx = kIdx + 1
+        else
+            kIdx = (input.KeyCode == KONAMI[1]) and 1 or 0
+        end
+        if kIdx == #KONAMI then
+            kIdx = 0
+            Library:Rainbow(12)
+            Library:DonutRain()
+        end
+    end)
+end
+
+-- nivel de efectos ("Full" | "Subtle" | "Off"), se guarda entre ejecuciones
+function WindowMT:SetJuice(level, save)
+    local l = string.lower(tostring(level or "Full"))
+    Library.Config.Juice = l == "off" and "Off" or (l == "subtle" and "Subtle" or "Full")
+    for _, w in ipairs(Library.Windows) do
+        if w._breathe then w._breathe() end
+    end
+    refreshIdle()
+    if save then self:_saveState({ juice = Library.Config.Juice }) end
+end
+function WindowMT:GetJuice()
+    local j = Library.Config.Juice
+    -- configs guardadas con "Extreme" (3.9 de prueba) cuentan como "Full"
+    if j ~= "Subtle" and j ~= "Off" then return "Full" end
+    return j
+end
+
 -- Intro: logo de Cookies con fade + pop, barra de carga, y luego aparece el menu
+-- Intro original (la de la v3.6.0): logo de Cookies con fade + pop y la barra de carga. Sin galleta dibujada.
 function WindowMT:_playIntro()
     local I = self.Config.Intro
     local gui = self.Gui
@@ -1934,6 +3024,7 @@ function WindowMT:_showTip(inst, title, body)
     T.body.Text = body or ""
     T.body.Visible = body ~= nil and body ~= ""
     T.group.GroupTransparency = 1
+    T.scale.Scale = 1
     T.group.Visible = true
     self._tipShown = true
     task.spawn(function()
@@ -1964,6 +3055,8 @@ function WindowMT:_showTip(inst, title, body)
         T.group.Position = UDim2.fromOffset(x + dx, y)
         tween(T.group, { GroupTransparency = 0, Position = UDim2.fromOffset(x, y) }, 0.16,
             Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        -- pop corto (se mide antes de escalar para que la posicion sea exacta)
+        popIn(T.scale, 0.9, 0.22)
     end)
 end
 
@@ -2084,16 +3177,13 @@ function WindowMT:SetVisible(state)
     self.Visible = state
     if state then
         self._root.Visible = true
-        if self._glass then
-            -- en cristal la ventana aparece con un pequeño rebote, como una gota
-            tween(self._scale, { Scale = self._baseScale() }, 0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        else
-            tween(self._scale, { Scale = self._baseScale() }, 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
-        end
+        self:_popOpen()
     else
         self:_hideTip()
-        tween(self._scale, { Scale = 0.94 }, 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        task.delay(Library.Config.Animations and (0.15 / math.max(Library.Config.AnimationSpeed or 1, 0.05)) or 0, function()
+        if self._setCustOpen then self._setCustOpen(false) end
+        -- salida rapida: se encoge con Quad In (las salidas nunca se sienten lentas)
+        tween(self._scale, { Scale = self._baseScale() * 0.9 }, 0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        task.delay(Library.Config.Animations and (0.14 / animSpeed()) or 0, function()
             if not self.Visible and self._root then self._root.Visible = false end
         end)
     end
@@ -2135,7 +3225,17 @@ function WindowMT:Minimize(state)
     end
 
     anchorTop(true)
+    -- pequeno squash al plegar/desplegar (como apretar la masa)
+    if juice() > 0 and self.Visible then
+        local base = self._baseScale()
+        tweenThen(self._scale, { Scale = base * 0.975 }, 0.08, function()
+            if self.Visible then
+                tween(self._scale, { Scale = base }, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            end
+        end, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    end
     if state then
+        if self._setCustOpen then self._setCustOpen(false) end
         self:CloseSearch()
         self:_hideTip()
         self._grip.Visible = false
@@ -2260,6 +3360,8 @@ function WindowMT:SetGlass(on, save)
     end
     if g then
         g.tint.Visible, g.sheen.Visible, g.inner.Visible, g.rimHost.Visible = on, on, on, on
+        -- la sombra entre capas oscurece el vidrio translucido: en Glass se oculta
+        if self._contentShadow then self._contentShadow.Visible = not on end
         if g.capsule then g.capsule.Visible = on end
         if g.corner then
             g.base = g.base or g.corner.CornerRadius
@@ -2340,7 +3442,7 @@ function WindowMT:_buildCustomizer()
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, TOP_H + 6), Size = UDim2.fromOffset(250, 0),
         AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Background, Visible = false, ZIndex = Z,
         Active = true, Parent = self._root,
-    }, { corner(14), stroke(Theme.Stroke, 1, 0.2), padding(12, 10, 12, 12), listLayout(6) })
+    }, { corner(12), stroke(Theme.Stroke, 1, 0.2), padding(12, 10, 12, 12), listLayout(6) })
     local popScale = create("UIScale", { Parent = pop })
     local order = 0
     local function row(h)
@@ -2390,6 +3492,45 @@ function WindowMT:_buildCustomizer()
         win:_saveState({ liquid = v })
     end)
 
+    -- nivel de efectos (Juice): rebotes, chispas y migajas. Control segmentado con pildora que se desliza
+    local LEVELS = { "Full", "Subtle", "Off" }
+    local jr = row(28)
+    rowLabel(jr, "Effects", 80)
+    local seg = create("Frame", {
+        AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(160, 24),
+        BackgroundColor3 = Theme.Input, ZIndex = Z + 1, Parent = jr,
+    }, { corner(8) })
+    local segPill = create("Frame", {
+        Position = UDim2.fromOffset(2, 2), Size = UDim2.new(1 / #LEVELS, -4, 1, -4), BackgroundColor3 = Theme.Accent,
+        ZIndex = Z + 2, Parent = seg,
+    }, { corner(8), sticker(nil, 1, 0) })
+    gloss(segPill, 7, 0.3, Z + 2)
+    local segBtns = {}
+    local function paintSeg(anim)
+        local idx = table.find(LEVELS, win:GetJuice()) or 1
+        local goal = UDim2.new((idx - 1) / #LEVELS, 2, 0, 2)
+        if anim then
+            tween(segPill, { Position = goal }, 0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        else
+            segPill.Position = goal
+        end
+        for i, b in ipairs(segBtns) do
+            tween(b, { TextColor3 = i == idx and Theme.OnAccent or Theme.Muted }, anim and 0.15 or 0)
+        end
+    end
+    for i, name in ipairs(LEVELS) do
+        local b = create("TextButton", {
+            Text = name, Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.Muted, BackgroundTransparency = 1,
+            Position = UDim2.fromScale((i - 1) / #LEVELS, 0), Size = UDim2.new(1 / #LEVELS, 0, 1, 0), ZIndex = Z + 3, Parent = seg,
+        })
+        table.insert(segBtns, b)
+        b.Activated:Connect(function()
+            win:SetJuice(name, true)
+            paintSeg(true)
+        end)
+    end
+    table.insert(switches, function() paintSeg(false) end)
+
     -- transparencia
     local tr = row(28)
     rowLabel(tr, "Transparency")
@@ -2438,7 +3579,7 @@ function WindowMT:_buildCustomizer()
     local thr = row(28)
     rowLabel(thr, "Theme", 120)
     local thBox = create("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
-        Size = UDim2.fromOffset(118, 24), BackgroundColor3 = Theme.Input, ZIndex = Z + 1, Parent = thr }, { corner(7) })
+        Size = UDim2.fromOffset(118, 24), BackgroundColor3 = Theme.Input, ZIndex = Z + 1, Parent = thr }, { corner(8) })
     local thName = label({ Text = Library.CurrentTheme, Font = Fonts.Bold, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Center,
         Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(20, 0), ZIndex = Z + 2, Parent = thBox })
     local accentRow
@@ -2489,6 +3630,7 @@ function WindowMT:_buildCustomizer()
         GlassFX.Liquid = win._glass == true
         win._liquidPref = nil
         win._state.liquid = nil
+        win:SetJuice("Full", true)
         win:_saveState()
         win:_custRefresh()
     end)
@@ -2577,7 +3719,7 @@ function WindowMT:Dialog(o)
         AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 10),
         Size = UDim2.fromOffset(math.min(o.Width or 320, self._ew - 40), 0), AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundColor3 = Theme.Element, GroupTransparency = 1, ZIndex = 61, Parent = overlay,
-    }, { corner(10), stroke(Theme.Stroke, 1, 0.2), padding(18, 16, 18, 16), listLayout(10) })
+    }, { corner(12), stroke(Theme.Stroke, 1, 0.2), padding(18, 16, 18, 16), listLayout(10) })
     label({
         Text = o.Title or "Confirm", Font = Fonts.Title, TextSize = 15, ZIndex = 62,
         TextTruncate = Enum.TextTruncate.None, TextWrapped = true, AutomaticSize = Enum.AutomaticSize.Y,
@@ -2617,10 +3759,13 @@ function WindowMT:Dialog(o)
             TextColor3 = style == "Default" and Theme.Text or (style == "Danger" and Theme.Text or Theme.OnAccent),
             BackgroundColor3 = Theme[fillKey], Size = UDim2.fromOffset(0, 32), AutomaticSize = Enum.AutomaticSize.X,
             LayoutOrder = i, ZIndex = 63, Parent = row,
-        }, { corner(7), padding(16, 0, 16, 0) })
+        }, { corner(8), padding(16, 0, 16, 0) })
         hover(btn, fillKey, hiKey)
         pressFx(btn)
-        btn.Activated:Connect(function()
+        if style ~= "Default" then sticker(btn, 1.5, 0) end
+        btn.ClipsDescendants = true
+        btn.Activated:Connect(function(input)
+            ripple(btn, input, style == "Default" and Theme.Accent or Theme.Text)
             close()
             if b.Callback then task.spawn(b.Callback) end
         end)
@@ -2676,22 +3821,38 @@ function WindowMT:Notify(o)
     local toast = create("TextButton", {
         Text = "", Position = hidden, Size = UDim2.new(1, 0, 0, 0),
         AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Theme.Element, ZIndex = 151, Parent = wrap,
-    }, { corner(9), stroke(Theme.Stroke, 1, 0.3) })
+    }, { corner(8), stroke(Theme.Stroke, 1, 0.3) })
 
-    -- icono del tipo: circulo tenue del color + simbolo
+    -- icono del tipo: "galleta" glaseada del color del aviso, con contorno chocolate y un mordisco
     local badge = create("Frame", {
-        Position = UDim2.fromOffset(12, 12), Size = UDim2.fromOffset(24, 24), BackgroundColor3 = color,
-        BackgroundTransparency = 0.82, ZIndex = 152, Parent = toast,
-    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(24, 24), Size = UDim2.fromOffset(24, 24),
+        BackgroundColor3 = color, ZIndex = 152, Parent = toast,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), sticker(nil, 1.5, 0) })
+    sheen(badge, 0.16)
+    gloss(badge, "full", 0.3, 152)
+    local iconCol = (kind == "Success" or kind == "Error") and rgb(255, 255, 255) or Theme.OnAccent
     if kind == "Success" then
-        checkIcon(badge, color, 153).show(true, color, 0)
+        checkIcon(badge, iconCol, 153).show(true, iconCol, 0)
     elseif kind == "Error" then
-        crossIcon(badge, 9, color, 153)
+        crossIcon(badge, 9, iconCol, 153)
     else
         label({
-            Text = kind == "Warning" and "!" or "i", Font = Fonts.Title, TextSize = 14, TextColor3 = color,
+            Text = kind == "Warning" and "!" or "i", Font = Fonts.Brand, TextSize = 15, TextColor3 = iconCol,
             TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 153, Parent = badge,
         })
+    end
+    -- mordisco: dos circulos del color de la notificacion sobre el borde superior derecho de la insignia
+    local bites = {}
+    for _, ang in ipairs({ -50, -15 }) do
+        local a = math.rad(ang)
+        table.insert(bites, create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(24 + math.cos(a) * 13, 24 + math.sin(a) * 13),
+            Size = UDim2.fromOffset(8, 8), BackgroundColor3 = Theme.Element, ZIndex = 154, Parent = toast,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) }))
+    end
+    local function paintBg(c, t)
+        tween(toast, { BackgroundColor3 = c }, t)
+        for _, b in ipairs(bites) do tween(b, { BackgroundColor3 = c }, t) end
     end
 
     local content = create("Frame", {
@@ -2709,11 +3870,14 @@ function WindowMT:Notify(o)
         Visible = o.Content ~= nil and o.Content ~= "", LayoutOrder = 2, Parent = content })
     local fill, fillTween
     if duration and duration > 0 then
+        -- barra de tiempo de glaseado que se va "comiendo"
         local track = create("Frame", {
-            Size = UDim2.new(1, 0, 0, 2), BackgroundColor3 = Theme.Input, LayoutOrder = 3, ZIndex = 152, Parent = content,
-        }, { corner(1) })
+            Size = UDim2.new(1, 0, 0, 4), BackgroundColor3 = Theme.Input, LayoutOrder = 3, ZIndex = 152, Parent = content,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
         fill = create("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = color, ZIndex = 153, Parent = track },
-            { corner(1) })
+            { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+        sheen(fill, 0.18)
+        gloss(fill, "full", 0.4, 153)
     end
 
     local closed, hovered = false, false
@@ -2741,16 +3905,29 @@ function WindowMT:Notify(o)
     end)
     toast.MouseEnter:Connect(function()
         hovered = true
-        tween(toast, { BackgroundColor3 = Theme.Row }, 0.12)
+        paintBg(Theme.Row, 0.12)
         if fillTween and ncfg.PauseOnHover ~= false then fillTween:Pause() end
     end)
     toast.MouseLeave:Connect(function()
         hovered = false
-        tween(toast, { BackgroundColor3 = Theme.Element }, 0.12)
+        paintBg(Theme.Element, 0.12)
         if fillTween and not closed then fillTween:Play() end
     end)
 
-    tween(toast, { Position = UDim2.new(0, 0, 0, 0) }, 0.32, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    -- entra deslizandose con rebote desde su lado; la insignia hace un pequeno "wiggle"
+    if juice() > 0 then
+        tween(toast, { Position = UDim2.new(0, 0, 0, 0) }, 0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        task.delay(0.2 / animSpeed(), function()
+            if not badge.Parent then return end
+            tweenThen(badge, { Rotation = -16 }, 0.08, function()
+                tweenThen(badge, { Rotation = 12 }, 0.1, function()
+                    tween(badge, { Rotation = 0 }, 0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                end, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut)
+            end, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        end)
+    else
+        tween(toast, { Position = UDim2.new(0, 0, 0, 0) }, 0.32, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    end
     if fill then
         fillTween = TweenService:Create(fill, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Size = UDim2.fromScale(0, 1) })
         fillTween:Play()
@@ -2906,30 +4083,41 @@ function WindowMT:CreateTab(name, icon)
         AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 25, 0.5, 0),
         Size = UDim2.fromOffset(iconSize, iconSize), BackgroundColor3 = Theme.Row, Parent = btn,
     }, { corner(6) })
-    local iconImg, iconTxt
+    local iconImg, iconTxt, iconDraw
 
+    -- el tab activo va sobre la pildora dorada: su icono y texto pasan al color "sobre acento"
     local function paintIcon(active, animate)
         local t = animate and 0.18 or 0
         if iconImg then
             iconHolder.BackgroundTransparency = 1
             local c = Color3.new(1, 1, 1)
-            if tint then c = active and iconColor() or Theme.Dim end
+            if tint then c = active and (o.IconColor or Theme.OnAccent) or Theme.Dim end
             tween(iconImg, { ImageColor3 = c, ImageTransparency = active and 0 or (tint and 0 or 0.35) }, t)
+        elseif iconDraw then
+            iconHolder.BackgroundTransparency = 1
+            iconDraw(active and Theme.OnAccent or (o.IconColor or Theme.Muted), t)
         elseif iconTxt then
             iconHolder.BackgroundTransparency = 0
-            tween(iconHolder, { BackgroundColor3 = active and Theme.Accent or Theme.Row }, t)
-            tween(iconTxt, { TextColor3 = active and Theme.OnAccent or Theme.Dim }, t)
+            tween(iconHolder, { BackgroundColor3 = active and Theme.Chocolate or Theme.Row }, t)
+            tween(iconTxt, { TextColor3 = active and Theme.AccentHi or Theme.Dim }, t)
         end
     end
 
     local function buildIcon(spec)
         for _, c in ipairs(iconHolder:GetChildren()) do
-            if not c:IsA("UICorner") then c:Destroy() end
+            if not c:IsA("UICorner") and not c:IsA("UIScale") then c:Destroy() end
         end
-        iconImg, iconTxt = nil, nil
+        iconImg, iconTxt, iconDraw = nil, nil, nil
         local kind, value, rect = resolveIcon(spec, name)
+        -- sin icono o con una letra: se busca un icono dibujado que encaje con el nombre de la tab
+        if kind == "letter" and (spec == nil or (type(spec) == "string" and #spec <= 2)) then
+            local guess = guessIcon(name)
+            if guess then kind, value = "draw", guess end
+        end
         tab.IconKind = kind
-        if kind == "image" then
+        if kind == "draw" then
+            iconDraw = drawIcon(value, iconHolder, iconSize, Theme.Muted, iconHolder.ZIndex)
+        elseif kind == "image" then
             local props = { Image = value, Size = UDim2.fromScale(1, 1), ScaleType = Enum.ScaleType.Fit, Parent = iconHolder }
             if rect then
                 props.ImageRectSize = rect[1]
@@ -2954,7 +4142,7 @@ function WindowMT:CreateTab(name, icon)
     local page = create("ScrollingFrame", {
         Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false,
         CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        ScrollBarThickness = IS_TOUCH and 4 or 3, ScrollBarImageColor3 = Theme.Accent, ScrollBarImageTransparency = 0.55,
+        ScrollBarThickness = IS_TOUCH and 5 or 4, ScrollBarImageColor3 = Theme.Accent, ScrollBarImageTransparency = 0.25, -- barra de glaseado
         ScrollingDirection = Enum.ScrollingDirection.Y, Parent = self._content,
     }, { padding(pad, pad, pad + 2, pad), listLayout(gap) })
     page:GetPropertyChangedSignal("CanvasPosition"):Connect(function() win:_hideTip() end)
@@ -2993,17 +4181,41 @@ function WindowMT:CreateTab(name, icon)
         self._single = single
     end
 
+    -- con la pildora deslizante (win._movePill) el fondo del tab activo lo pone la pildora
+    local hasPill = win._movePill ~= nil
+    local iconScale
     function tab:_setActive(active)
-        tween(btn, { BackgroundTransparency = active and 0 or 1, BackgroundColor3 = active and Theme.AccentSoft or Theme.Row }, 0.18)
-        tween(indicator, { BackgroundTransparency = active and 0 or 1, Size = UDim2.fromOffset(3, active and 18 or 6) }, 0.25,
-            Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-        tween(nameLabel, { TextColor3 = active and Theme.Text or Theme.Dim }, 0.18)
+        if hasPill then
+            tween(btn, { BackgroundTransparency = 1 }, 0.12)
+        else
+            tween(btn, { BackgroundTransparency = active and 0 or 1, BackgroundColor3 = active and Theme.AccentSoft or Theme.Row }, 0.18)
+            tween(indicator, { BackgroundTransparency = active and 0 or 1, Size = UDim2.fromOffset(3, active and 18 or 6) }, 0.25,
+                Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        end
+        tween(nameLabel, { TextColor3 = active and (hasPill and Theme.OnAccent or Theme.Text) or Theme.Muted }, 0.18)
         self.Active = active
         paintIcon(active, true)
         if active then
+            -- "boop" del icono del tab nuevo
+            if iconScale and juice() > 0 then
+                iconScale.Scale = 1.22
+                tween(iconScale, { Scale = 1 }, 0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            end
             page.Visible = true
-            page.Position = UDim2.fromOffset(0, 8)
-            tween(page, { Position = UDim2.fromOffset(0, 0) }, 0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            page.Position = UDim2.fromOffset(0, 10)
+            tween(page, { Position = UDim2.fromOffset(0, 0) }, 0.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            -- las secciones entran escalonadas (25 ms entre cada una)
+            if juice() > 0 then
+                for i, s in ipairs(self._sections) do
+                    local sc = s._pop
+                    if sc and i <= 12 then
+                        sc.Scale = 0.96
+                        task.delay((i - 1) * 0.025 / animSpeed(), function()
+                            if sc.Parent then tween(sc, { Scale = 1 }, 0.32, Enum.EasingStyle.Back, Enum.EasingDirection.Out) end
+                        end)
+                    end
+                end
+            end
             task.defer(function() self:Refresh() end)
         else
             page.Visible = false
@@ -3011,11 +4223,12 @@ function WindowMT:CreateTab(name, icon)
     end
 
     tab._repaint = function()
-        btn.BackgroundColor3 = tab.Active and Theme.AccentSoft or Theme.Row
-        btn.BackgroundTransparency = tab.Active and 0 or 1
-        indicator.BackgroundTransparency = tab.Active and 0 or 1
+        btn.BackgroundColor3 = Theme.Row
+        btn.BackgroundTransparency = (tab.Active and not hasPill) and 0 or 1
+        if tab.Active and not hasPill then btn.BackgroundColor3 = Theme.AccentSoft end
+        indicator.BackgroundTransparency = (tab.Active and not hasPill) and 0 or 1
         indicator.Size = UDim2.fromOffset(3, tab.Active and 18 or 6)
-        nameLabel.TextColor3 = tab.Active and Theme.Text or Theme.Dim
+        nameLabel.TextColor3 = tab.Active and (hasPill and Theme.OnAccent or Theme.Text) or Theme.Muted
         paintIcon(tab.Active, false)
     end
 
@@ -3073,7 +4286,7 @@ function WindowMT:CreateTab(name, icon)
         win:SelectTab(tab)
         win:_saveState({ tab = tab.Name })
     end)
-    pressFx(btn, iconHolder, 0.88)
+    iconScale = pressFx(btn, iconHolder, 0.88)
     -- en modo compacto solo se ve el icono: el tooltip muestra el nombre de la tab
     self:_bindTip(btn, function()
         if win._compact then return tab.Name end
@@ -3104,7 +4317,14 @@ function WindowMT:SelectTab(tab)
         if t ~= tab and t.Active then t:_setActive(false) end
     end
     if not tab.Active then tab:_setActive(true) end
+    local first = self.ActiveTab == nil
     self.ActiveTab = tab
+    -- la pildora viaja al tab nuevo (se espera un frame para que el layout tenga posiciones reales)
+    if self._movePill then
+        task.defer(function()
+            if self.ActiveTab == tab then self._movePill(tab._btn, not first) end
+        end)
+    end
 end
 
 local HEADER_H = 28
@@ -3150,19 +4370,34 @@ function TabMT:CreateSection(o)
     local frame = create("Frame", {
         Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
         BackgroundColor3 = Theme.Element, Parent = parentFrame,
-    }, { corner(scfg.Corner), stroke(Theme.Stroke, 1, 0.45), padding(10, 10, 10, 10), listLayout(0),
+    }, { corner(scfg.Corner), sticker(nil, 1.5, 0.25), padding(10, 10, 10, 10), listLayout(0),
         create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), rgb(222, 222, 222)) }) })
     section._frame, section.Frame = frame, frame
+    -- escala para la entrada escalonada al abrir el tab
+    section._pop = create("UIScale", { Parent = frame })
 
     local header = create(collapsible and "TextButton" or "Frame", {
         BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, HEADER_H), LayoutOrder = 0, Parent = frame,
         Text = collapsible and "" or nil,
     })
-    local titleX = 14
+    -- luz de 1 px en el borde superior de la tarjeta (el header esta dentro del padding de 10)
+    local secR = scfg.Corner
+    create("Frame", {
+        Position = UDim2.fromOffset(-10 + secR, -9), Size = UDim2.new(1, 20 - secR * 2, 0, 1),
+        BackgroundColor3 = GLASS_WHITE, BackgroundTransparency = 0.9, ThemeIgnore = true, Parent = header,
+    }, { create("UIGradient", { Transparency = nseq({ { 0, 1 }, { 0.25, 0 }, { 0.75, 0 }, { 1, 1 } }) }) })
+    local titleX = 18
     local dot
     local iconKind, iconValue, iconRect
     if o.Icon ~= nil then iconKind, iconValue, iconRect = resolveIcon(o.Icon, "") end
-    if iconKind == "image" then
+    if iconKind == "draw" then
+        local ih = create("Frame", {
+            AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(16, 16),
+            BackgroundTransparency = 1, Parent = header,
+        })
+        drawIcon(iconValue, ih, 16, pick(o.IconColor, accent))
+        titleX = 24
+    elseif iconKind == "image" then
         local props = {
             Image = iconValue, AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
             Size = UDim2.fromOffset(16, 16), ScaleType = Enum.ScaleType.Fit,
@@ -3175,10 +4410,12 @@ function TabMT:CreateSection(o)
         create("ImageLabel", props)
         titleX = 24
     else
+        -- punto glaseado con contorno chocolate: una mini galleta como marca de la seccion
         dot = create("Frame", {
             AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 1, 0.5, 0),
-            Size = UDim2.fromOffset(3, 14), BackgroundColor3 = accent, Parent = header,
-        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            Size = UDim2.fromOffset(10, 10), BackgroundColor3 = accent, Parent = header,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), sticker(nil, 1.5, 0) })
+        gloss(dot, "full", 0.45, 1)
     end
     local title = label({
         Text = section.Name, Font = Fonts.Bold, TextSize = 13, TextColor3 = Theme.Text,
@@ -3289,7 +4526,15 @@ function TabMT:CreateSection(o)
         local id = self._anim
         local dur = instant and 0 or 0.25
 
-        if arrow then tween(arrow, { Rotation = open and 0 or -90 }, dur, SOFT, SOFT_DIR) end
+        -- el chevron gira con rebote; el contenido se despliega con easing
+        if arrow then
+            if juice() > 0 and dur > 0 then
+                tween(arrow, { Rotation = open and 0 or -90 }, 0.38, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+            else
+                tween(arrow, { Rotation = open and 0 or -90 }, dur, SOFT, SOFT_DIR)
+            end
+        end
+        if open then dur = instant and 0 or 0.3 end
 
         -- arrancamos desde la altura actual (si se interrumpe una animación, continúa suave)
         local current = unscaled(body.AbsoluteSize.Y)
@@ -3395,18 +4640,38 @@ local function rowStroke(parent)
 end
 
 -- noHover: el elemento maneja su propio hover (p.ej. botones Primary/Danger)
-function SectionMT:_row(height, clickable, o, noHover)
+-- accent = true: fila de acento con contorno chocolate tipo sticker (sin la "elevacion" de las filas normales)
+function SectionMT:_row(height, clickable, o, noHover, accent)
     local parent, order = self:_slot(o)
     local props = {
         Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = Theme.Row,
         LayoutOrder = order, Parent = parent,
     }
     if clickable then props.Text = "" end
-    local r = create(clickable and "TextButton" or "Frame", props, { corner(self.Window.Config.Element.Corner) })
+    local ecr = self.Window.Config.Element.Corner
+    local r = create(clickable and "TextButton" or "Frame", props, { corner(ecr) })
+    if accent then
+        sticker(r, 1.5, 0)
+        return r
+    end
     local st = rowStroke(r)
     if clickable and not noHover then hover(r, "Row", "RowHover") end
-    r.MouseEnter:Connect(function() tween(st, { Transparency = 0.45 }, 0.12) end)
-    r.MouseLeave:Connect(function() tween(st, { Transparency = ROW_STROKE }, 0.12) end)
+    -- "elevacion" al pasar el mouse: luz fina arriba + borde que se calienta hacia el acento.
+    -- (moverla 1 px no se puede: esta dentro de un UIListLayout y desacomodaria la columna)
+    -- la luz superior siempre se ve un poco (bisel) y se enciende con el hover; abajo, sombra suave
+    local lift = create("Frame", {
+        Position = UDim2.fromOffset(ecr, 1), Size = UDim2.new(1, -ecr * 2, 0, 1), BackgroundColor3 = GLASS_WHITE,
+        BackgroundTransparency = 0.93, ThemeIgnore = true, Parent = r,
+    }, { create("UIGradient", { Transparency = nseq({ { 0, 1 }, { 0.5, 0 }, { 1, 1 } }) }) })
+    -- (sin degradado en filas neutras: el glaseado queda reservado para lo dorado, asi resalta)
+    r.MouseEnter:Connect(function()
+        tween(st, { Transparency = 0.3, Color = Theme.Stroke:Lerp(Theme.Accent, 0.35) }, 0.14)
+        if juice() > 0 then tween(lift, { BackgroundTransparency = 0.8 }, 0.14) end
+    end)
+    r.MouseLeave:Connect(function()
+        tween(st, { Transparency = ROW_STROKE, Color = Theme.Stroke }, 0.14)
+        tween(lift, { BackgroundTransparency = 0.93 }, 0.14)
+    end)
     return r
 end
 
@@ -3465,6 +4730,15 @@ function SectionMT:AddParagraph(o)
     }
 end
 
+-- separador de chocolate: linea de 2 px que se desvanece en las puntas
+local function chocoLine(f, y)
+    create("Frame", {
+        AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, y), Size = UDim2.new(1, 0, 0, 2),
+        BackgroundColor3 = Theme.Chocolate, Parent = f,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }),
+        create("UIGradient", { Transparency = nseq({ { 0, 1 }, { 0.12, 0.15 }, { 0.88, 0.15 }, { 1, 1 } }) }) })
+end
+
 function SectionMT:AddDivider(text)
     local o = type(text) == "table" and text or { Text = text }
     local parent, order = self:_slot(o)
@@ -3480,13 +4754,13 @@ function SectionMT:AddDivider(text)
         create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = l })
         l.BackgroundTransparency = 0
         l.BackgroundColor3 = Theme.Element
-        create("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5),
-            Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Stroke, Parent = f })
+        chocoLine(f, 0.5)
         return { Frame = f, SetVisible = function(_, v) f.Visible = v ~= false end }
     end
     local d = create("Frame", {
-        Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = Theme.Stroke, LayoutOrder = order, Parent = parent,
+        BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 8), LayoutOrder = order, Parent = parent,
     })
+    chocoLine(d, 0.3)
     return { Frame = d, SetVisible = function(_, v) d.Visible = v ~= false end }
 end
 
@@ -3511,27 +4785,70 @@ function SectionMT:AddButton(o)
     end
     local function textColor() return style == "Danger" and Theme.Text or (primary and Theme.OnAccent or Theme.Text) end
 
+    -- base oscura de la "galleta gruesa" (se ve debajo de la cara del boton)
+    local function deep()
+        if style == "Danger" then return Theme.Error:Lerp(rgb(0, 0, 0), 0.3) end
+        return Theme.AccentDeep
+    end
+
     local hasDesc = o.Description and o.Description ~= ""
-    local b = self:_row(hasDesc and 46 or self:_eh(o), true, o, true)
-    b.BackgroundColor3 = normal()
-    bindTheme(b, "BackgroundColor3", style == "Danger" and "Error" or (primary and "Accent" or "Row"))
+    local ecr = self.Window.Config.Element.Corner
+    local b = self:_row(hasDesc and 46 or self:_eh(o), true, o, true, primary)
+    b.ClipsDescendants = true
+    -- Primary/Danger: la fila es la base oscura y adentro va la "cara" glaseada, 3 px mas arriba.
+    -- Al presionar la cara baja y tapa la base, como una galleta que se hunde.
+    local DEPTH = 3
+    local face
+    if primary then
+        b.BackgroundColor3 = deep()
+        if style ~= "Danger" then bindTheme(b, "BackgroundColor3", "AccentDeep") end
+        face = create("Frame", {
+            Size = UDim2.new(1, 0, 1, -DEPTH), BackgroundColor3 = normal(), ClipsDescendants = true, ZIndex = 1, Parent = b,
+        }, { corner(ecr) })
+        -- idle: el glaseado de la cara se mueve lento, como luz que se desliza sobre el dulce
+        local fg = sheen(face, 0.16)
+        fg.Offset = Vector2.new(0, -0.12)
+        idle(fg, loopInfo(2.4), { Offset = Vector2.new(0, 0.12), Rotation = 80 }, { Offset = Vector2.new(0, 0), Rotation = 100 })
+        gloss(face, ecr, 0.22, 1)
+    else
+        b.BackgroundColor3 = normal()
+        bindTheme(b, "BackgroundColor3", "Row")
+    end
+    local surface = face or b
+    local playShine = shine(surface, ecr, primary and 0.3 or 0.12, 1)
 
     local name = o.Name or "Button"
     local nameLbl = label({
         Text = name, Font = Fonts.Bold, TextSize = 13, TextColor3 = textColor(),
-        TextXAlignment = Enum.TextXAlignment.Center,
+        TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 2,
         Position = UDim2.fromOffset(8, hasDesc and 5 or 0), Size = UDim2.new(1, -16, hasDesc and 0 or 1, hasDesc and 20 or 0),
-        Parent = b,
+        Parent = surface,
     })
+    local descLbl
     if hasDesc then
-        label({ Text = o.Description, TextSize = 11, TextColor3 = primary and textColor() or Theme.Muted,
-            TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(8, 25),
-            Size = UDim2.new(1, -16, 0, 14), Parent = b })
+        descLbl = label({ Text = o.Description, TextSize = 11, TextColor3 = primary and textColor() or Theme.Muted,
+            TextXAlignment = Enum.TextXAlignment.Center, Position = UDim2.fromOffset(8, 25), ZIndex = 2,
+            Size = UDim2.new(1, -16, 0, 14), Parent = surface })
     end
-    b.MouseEnter:Connect(function() tween(b, { BackgroundColor3 = over() }, 0.15) end)
-    b.MouseLeave:Connect(function() tween(b, { BackgroundColor3 = normal() }, 0.15) end)
-    pressFx(b, nil, 0.98)
-    if primary then sheen(b, 0.14) end
+    b.MouseEnter:Connect(function()
+        tween(surface, { BackgroundColor3 = over() }, 0.15)
+        playShine()
+    end)
+    b.MouseLeave:Connect(function() tween(surface, { BackgroundColor3 = normal() }, 0.15) end)
+    if face then
+        b.MouseButton1Down:Connect(function()
+            tween(face, { Position = UDim2.fromOffset(0, DEPTH - 1) }, 0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        end)
+        local function up()
+            tween(face, { Position = UDim2.fromOffset(0, 0) }, juice() >= 2 and 0.32 or 0.18,
+                Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        end
+        b.MouseButton1Up:Connect(up)
+        b.MouseLeave:Connect(up)
+        pressFx(b, nil, 0.99)
+    else
+        pressFx(b, nil, 0.98)
+    end
 
     local obj = { Type = "Button" }
     decorate(self, obj, b, o)
@@ -3542,7 +4859,7 @@ function SectionMT:AddButton(o)
     local function disarm()
         armed = false
         nameLbl.Text = name
-        tween(b, { BackgroundColor3 = normal() }, 0.2)
+        tween(surface, { BackgroundColor3 = normal() }, 0.2)
     end
     function obj:Click()
         if obj.Enabled == false then return end
@@ -3551,13 +4868,13 @@ function SectionMT:AddButton(o)
             armId = armId + 1
             local id = armId
             nameLbl.Text = confirmText
-            b.BackgroundColor3 = over()
+            surface.BackgroundColor3 = over()
             task.delay(2.5, function() if armed and id == armId then disarm() end end)
             return
         end
         if armed then disarm() end
-        b.BackgroundColor3 = over()
-        tween(b, { BackgroundColor3 = normal() }, 0.25)
+        surface.BackgroundColor3 = over()
+        tween(surface, { BackgroundColor3 = normal() }, 0.25)
         fire(obj, o)
     end
     function obj:SetText(t)
@@ -3565,10 +4882,30 @@ function SectionMT:AddButton(o)
         if not armed then nameLbl.Text = name end
     end
     obj._repaint = function()
-        b.BackgroundColor3 = normal()
+        if face then
+            b.BackgroundColor3 = deep()
+            face.BackgroundColor3 = normal()
+        else
+            b.BackgroundColor3 = normal()
+        end
         nameLbl.TextColor3 = textColor()
+        if descLbl then descLbl.TextColor3 = primary and textColor() or Theme.Muted end
     end
-    b.Activated:Connect(function() obj:Click() end)
+    b.Activated:Connect(function(input)
+        if obj.Enabled ~= false then
+            -- onda dorada desde el punto del click (en Primary es crema para que se vea sobre el dorado)
+            ripple(surface, input, primary and Theme.Text or Theme.Accent)
+            -- botones importantes (Primary / Danger): migajas de galleta saltan desde el punto del click
+            local at
+            if input and typeof(input) == "Instance" and input:IsA("InputObject") then
+                at = Vector2.new(input.Position.X, input.Position.Y) + guiInset()
+            end
+            if primary and juice() >= 2 and not o.Confirm then
+                burst(self.Window, surface, 5, "crumb", at)
+            end
+        end
+        obj:Click()
+    end)
     return obj
 end
 
@@ -3588,24 +4925,73 @@ function SectionMT:AddToggle(o)
     local section = self
     local function onColor() return o.Color or Theme.Accent end
     local checkbox = o.Style == "Checkbox"
-    local sw, knob, check, swStroke
+    local sw, knob, check, swStroke, checkScale, swGloss, knobStroke, knobSpring
     if checkbox then
         -- variante compacta: casilla con check
         swStroke = stroke(Theme.Stroke, 1, 0.2)
         sw = create("Frame", {
             AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0),
             Size = UDim2.fromOffset(18, 18), BackgroundColor3 = Theme.Input, Parent = r,
-        }, { corner(5), swStroke })
-        check = checkIcon(sw, Theme.OnAccent)
+        }, { corner(6), swStroke })
+        swGloss = gloss(sw, 6, 0.3, 1)
+        check = checkIcon(sw, Theme.OnAccent, 2)
+        checkScale = create("UIScale", { Parent = check.Frame })
     else
+        swStroke = stroke(Theme.Stroke, 1, 0.4)
         sw = create("Frame", {
             AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
             Size = UDim2.fromOffset(38, 20), BackgroundColor3 = Theme.Input, Parent = r,
-        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), stroke(Theme.Stroke, 1, 0.4) })
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), swStroke })
+        -- la pista encendida se ve glaseada: sombra abajo (sheen) + franja de luz arriba (gloss)
+        sheen(sw, 0.16)
+        swGloss = gloss(sw, "full", 0.3, 1)
+        knobStroke = stroke(Theme.Chocolate, 1, 1)
         knob = create("Frame", {
-            AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0),
-            Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Theme.Muted, Parent = sw,
-        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 10, 0.5, 0),
+            Size = UDim2.fromOffset(14, 14), BackgroundColor3 = Theme.Muted, ZIndex = 2, Parent = sw,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), knobStroke })
+        -- el knob viaja con un resorte: se estira segun la velocidad (squash & stretch) y rebota al llegar
+        knobSpring = Spring.new(10, 3.4, 0.55, function(x, vel)
+            knob.Position = UDim2.new(0, x, 0.5, 0)
+            local st = juice() > 0 and math.clamp(math.abs(vel) / 240, 0, 0.5) or 0
+            knob.Size = UDim2.fromOffset(14 * (1 + st), 14 * (1 - st * 0.4))
+        end, knob, 0.05)
+    end
+    swGloss.Visible = false
+    -- 3 chispas sobre el glaseado de la pista encendida (lado izquierdo; el knob queda a la derecha)
+    local tSprinkles
+    if not checkbox then
+        tSprinkles = {}
+        local spots = { { 7, 7, -35 }, { 13, 13, 40 }, { 18, 6, 10 } }
+        for i, sp in ipairs(spots) do
+            local f = sprinkle(sw, i, UDim2.fromOffset(sp[1], sp[2]), sp[3], 1)
+            f.Size = UDim2.fromOffset(4, 2)
+            f.Visible = false
+            tSprinkles[i] = { f = f, x = sp[1], y = sp[2], rot = sp[3] }
+        end
+    end
+    local function showSprinkles(on, animate)
+        if not tSprinkles then return end
+        for i, s in ipairs(tSprinkles) do
+            local f = s.f
+            if not on or juice() == 0 then
+                f.Visible = false
+            elseif animate and juice() >= 2 then
+                -- caen desde arriba de la pista y rebotan, una tras otra
+                f.Visible = true
+                f.Position = UDim2.fromOffset(s.x, s.y - 12)
+                f.Rotation = s.rot + 90
+                f.BackgroundTransparency = 1
+                task.delay((i - 1) * 0.05 / animSpeed(), function()
+                    if not f.Visible then return end -- se apago antes de caer
+                    tween(f, { Position = UDim2.fromOffset(s.x, s.y), Rotation = s.rot, BackgroundTransparency = 0 },
+                        0.42, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out)
+                end)
+            else
+                f.Visible = true
+                f.Position, f.Rotation, f.BackgroundTransparency = UDim2.fromOffset(s.x, s.y), s.rot, 0
+            end
+        end
     end
 
     local obj = { Type = "Toggle", Value = false }
@@ -3613,18 +4999,23 @@ function SectionMT:AddToggle(o)
     function obj:Set(v, silent)
         v = v and true or false
         local animate = obj._ready and 0.22 or 0
+        local changed = obj.Value ~= v
         obj.Value = v
         tween(sw, { BackgroundColor3 = v and onColor() or Theme.Input }, animate)
+        swGloss.Visible = v
+        -- encendido: contorno chocolate tipo sticker; apagado: borde normal
+        tween(swStroke, { Color = v and Theme.Chocolate or Theme.Stroke, Transparency = v and 0 or (checkbox and 0.2 or 0.4) }, animate)
         if checkbox then
-            tween(swStroke, { Color = v and onColor() or Theme.Stroke }, animate)
             check.show(v, Theme.OnAccent, animate)
+            if v and changed and animate > 0 then popIn(checkScale, 0.3, 0.34) end
         else
-            tween(knob, {
-                AnchorPoint = Vector2.new(v and 1 or 0, 0.5),
-                Position = v and UDim2.new(1, -3, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
-                BackgroundColor3 = v and Theme.Text or Theme.Muted,
-            }, animate, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            tween(knob, { BackgroundColor3 = v and Theme.Text or Theme.Muted }, animate)
+            tween(knobStroke, { Transparency = v and 0.1 or 1 }, animate)
+            -- encender rebota mas (Full); apagar es mas seco
+            knobSpring.d = (juice() >= 2 and v) and 0.5 or (juice() == 0 and 1 or 0.78)
+            Spring.to(knobSpring, v and 28 or 10, animate == 0)
         end
+        showSprinkles(v and (o.Color == nil), changed and animate > 0)
         if not silent then fire(obj, o, v) end
     end
     function obj:Get() return obj.Value end
@@ -3642,7 +5033,7 @@ function SectionMT:AddToggle(o)
             BackgroundColor3 = Theme.Input, AnchorPoint = Vector2.new(1, 0.5),
             Position = UDim2.new(1, -(swW + 18), 0.5, 0), Size = UDim2.fromOffset(0, 20),
             AutomaticSize = Enum.AutomaticSize.X, ZIndex = 3, Parent = r,
-        }, { corner(5), stroke(Theme.Stroke, 1, 0.3), padding(8, 0, 8, 0) })
+        }, { corner(6), stroke(Theme.Stroke, 1, 0.3), padding(8, 0, 8, 0) })
         nameLbl.Size = UDim2.new(1, -(swW + 92), nameLbl.Size.Y.Scale, nameLbl.Size.Y.Offset)
         local kb = {
             Type = "Keybind", Value = Enum.KeyCode.Unknown, Mode = ko.Mode == "Hold" and "Hold" or "Press",
@@ -3652,7 +5043,9 @@ function SectionMT:AddToggle(o)
             if not obj.Enabled then return end
             if kb.Mode == "Hold" then obj:Set(state == true) else obj:Toggle() end
         end
+        local beat = pulse(chip, 1.1)
         function kb:Set(key)
+            beat(false)
             kb.Value = keyFromValue(key)
             chip.Text = keyName(kb.Value)
             chip.TextColor3 = kb.Value == Enum.KeyCode.Unknown and Theme.Dim or Theme.Muted
@@ -3669,6 +5062,7 @@ function SectionMT:AddToggle(o)
             Library._binding = true
             chip.Text = "..."
             chip.TextColor3 = Theme.Accent
+            beat(true) -- el chip "late" mientras espera la tecla
             local conn
             conn = UserInputService.InputBegan:Connect(function(input)
                 if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
@@ -3688,12 +5082,22 @@ function SectionMT:AddToggle(o)
 
     obj:Set(o.Default or false, true)
     obj._ready = true
-    r.Activated:Connect(function() if obj.Enabled then obj:Set(not obj.Value) end end)
+    JUICE_HOOKS[r] = function() showSprinkles(obj.Value and (o.Color == nil), false) end
+    r.Activated:Connect(function()
+        if not obj.Enabled then return end
+        obj:Set(not obj.Value)
+        -- recompensa al encender: chispitas doradas desde el switch (solo Juice = "Full")
+        if obj.Value then burst(section.Window, knob or sw, 4, "spark") end
+    end)
     if knob then
         r.MouseButton1Down:Connect(function()
-            if obj.Enabled then tween(knob, { Size = UDim2.fromOffset(19, 14) }, 0.12) end
+            if obj.Enabled and not Spring._active[knobSpring] then tween(knob, { Size = UDim2.fromOffset(19, 14) }, 0.12) end
         end)
-        local function release() tween(knob, { Size = UDim2.fromOffset(14, 14) }, 0.2, Enum.EasingStyle.Back) end
+        local function release()
+            if not Spring._active[knobSpring] then
+                tween(knob, { Size = UDim2.fromOffset(14, 14) }, 0.2, Enum.EasingStyle.Back)
+            end
+        end
         r.MouseButton1Up:Connect(release)
         r.MouseLeave:Connect(release)
     else
@@ -3718,22 +5122,36 @@ function SectionMT:AddSlider(o)
     local box = create("TextBox", {
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 6),
         Size = UDim2.fromOffset(60, 18), BackgroundColor3 = Theme.Input, Font = Fonts.Bold,
-        TextSize = 12, TextColor3 = Theme.Text, ClearTextOnFocus = false, Text = "", Parent = r,
+        TextSize = 12, TextColor3 = Theme.Accent, ClearTextOnFocus = false, Text = "", Parent = r,
     }, { corner(6), stroke(Theme.Stroke, 1) })
     local track = create("Frame", {
-        Position = UDim2.fromOffset(12, 37), Size = UDim2.new(1, -24, 0, 4),
+        Position = UDim2.fromOffset(12, 35), Size = UDim2.new(1, -24, 0, 8),
         BackgroundColor3 = Theme.Input, Parent = r,
     }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    -- relleno = glaseado de dona: dorado brillante con chispas de colores y un brillo que lo recorre
     local fill = create("Frame", {
         Size = UDim2.fromScale(0, 1), BackgroundColor3 = o.Color or Theme.Accent, Parent = track,
-    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), create("UIGradient", {
-        Transparency = NumberSequence.new(0.45, 0),
-    }) })
-    local knobRing = stroke(o.Color or Theme.Accent, 2)
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    gloss(fill, "full", 0.4, 1)
+    local nudgeSprinkles = glazeBar(fill, 12, 1)
+    local knobRing = stroke(Theme.Chocolate, 2)
     local knob = create("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(1, 0.5),
         Size = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Text, ZIndex = 2, Parent = fill,
     }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }), knobRing })
+    -- idle: el knob late muy suave para invitar a arrastrarlo
+    idle(create("UIScale", { Parent = knob }), loopInfo(1.3), { Scale = 1.12 }, { Scale = 1 })
+    -- burbuja con el valor: aparece al arrastrar y sigue al knob (encima de la pista, nunca tapa la caja del valor)
+    local bubble = label({
+        Text = "", Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.OnAccent, BackgroundTransparency = 0,
+        BackgroundColor3 = Theme.Accent, TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.None,
+        AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 0, -5), Size = UDim2.fromOffset(0, 18),
+        AutomaticSize = Enum.AutomaticSize.X, ZIndex = 6, Visible = false, Parent = knob,
+    })
+    create("UICorner", { CornerRadius = UDim.new(1, 0), Parent = bubble })
+    create("UIPadding", { PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7), Parent = bubble })
+    sticker(bubble, 1.5, 0)
+    local bubbleScale = create("UIScale", { Parent = bubble })
     local hit = create("TextButton", {
         Text = "", BackgroundTransparency = 1, Position = UDim2.fromOffset(6, 26),
         Size = UDim2.new(1, -12, 0, 26), Parent = r,
@@ -3748,11 +5166,25 @@ function SectionMT:AddSlider(o)
         v = math.clamp(v, min, max)
         return tonumber(string.format(fmt, v))
     end
+    -- el relleno sigue al valor con un resorte casi sin rebote: el arrastre se siente suave
+    local fillSpring = Spring.new(0, 6, 0.9, function(a)
+        fill.Size = UDim2.fromScale(math.clamp(a, 0, 1), 1)
+    end, fill, 0.0005)
     local function render()
         local alpha = (max == min) and 0 or (obj.Value - min) / (max - min)
-        tween(fill, { Size = UDim2.fromScale(alpha, 1) }, obj._dragging and 0.06 or (obj._ready and 0.15 or 0),
-            Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        Spring.to(fillSpring, alpha, not obj._ready)
         box.Text = string.format(fmt, obj.Value) .. suffix
+        bubble.Text = string.format(fmt, obj.Value) .. suffix
+    end
+    local function showBubble(on)
+        if on then
+            bubble.Visible = true
+            popIn(bubbleScale, 0.3, 0.26)
+        else
+            tweenThen(bubbleScale, { Scale = 0 }, 0.12, function()
+                if not obj._dragging then bubble.Visible = false end
+            end, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+        end
     end
     function obj:Set(v, silent)
         v = snap(tonumber(v) or min)
@@ -3770,20 +5202,29 @@ function SectionMT:AddSlider(o)
     local function fromPos(pos)
         local a = math.clamp((pos.X - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
         local snapped = snap(min + (max - min) * a)
-        if snapped ~= obj.Value then obj:Set(snapped) end
+        if snapped ~= obj.Value then
+            obj:Set(snapped)
+            nudgeSprinkles() -- las chispas se acomodan un poquito al mover el glaseado
+        end
     end
     dragger(hit, function(input)
         if not obj.Enabled then return end
         obj._dragging = true
         self:_lockScroll(true)
-        tween(knob, { Size = UDim2.fromOffset(16, 16) }, 0.12)
+        -- el knob crece al agarrarlo y muestra la burbuja con el valor
+        tween(knob, { Size = UDim2.fromOffset(17, 17) }, 0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
         fromPos(input.Position)
+        showBubble(true)
     end, function(i)
         if obj._dragging then fromPos(i.Position) end
     end, function()
+        if not obj._dragging then return end
         obj._dragging = false
         self:_lockScroll(false)
-        tween(knob, { Size = UDim2.fromOffset(12, 12) }, 0.12)
+        showBubble(false)
+        -- al soltar, pequeno rebote
+        tween(knob, { Size = UDim2.fromOffset(12, 12) }, juice() >= 2 and 0.45 or 0.18,
+            juice() >= 2 and Enum.EasingStyle.Elastic or Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
     end)
     box.Focused:Connect(function() box.Text = tostring(obj.Value) end)
     box.FocusLost:Connect(function()
@@ -3833,7 +5274,7 @@ function SectionMT:AddDropdown(o)
     local chip = create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0),
         Size = UDim2.new(0.56, -8, 0, H - 10), BackgroundColor3 = Theme.Input, Parent = head,
-    }, { corner(5), chipStroke })
+    }, { corner(6), chipStroke })
     local valueLabel = label({
         Text = placeholder, TextSize = 12, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(8, 0),
         Size = UDim2.new(1, -34, 1, 0), Parent = chip,
@@ -3842,15 +5283,20 @@ function SectionMT:AddDropdown(o)
         AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -24, 0.5, 0), Size = UDim2.new(0, 1, 1, -10),
         BackgroundColor3 = Theme.Stroke, BackgroundTransparency = 0.4, Parent = chip,
     })
+    -- zona de la flecha: circulito dorado tenue, para que el dropdown no se vea como una caja de texto mas
+    create("Frame", {
+        AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(18, 18),
+        BackgroundColor3 = Theme.AccentSoft, Parent = chip,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
     local arrow = create("Frame", {
         BackgroundTransparency = 1, AnchorPoint = Vector2.new(0.5, 0.5),
-        Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(12, 12), Parent = chip,
+        Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(12, 12), ZIndex = 2, Parent = chip,
     })
     local arrowBars = {}
     for _, s in ipairs({ { 45, -2 }, { -45, 2 } }) do
         table.insert(arrowBars, create("Frame", {
-            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, s[2], 0.5, 0),
-            Size = UDim2.fromOffset(7, 2), Rotation = s[1], BackgroundColor3 = Theme.Muted, Parent = arrow,
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, s[2], 0.5, 1),
+            Size = UDim2.fromOffset(7, 2), Rotation = s[1], BackgroundColor3 = Theme.Accent, ZIndex = 2, Parent = arrow,
         }, { corner(1) }))
     end
 
@@ -3863,7 +5309,7 @@ function SectionMT:AddDropdown(o)
     local searchBar = create("Frame", {
         Position = UDim2.fromOffset(4, 4), Size = UDim2.new(1, -8, 0, SEARCH_H),
         BackgroundColor3 = Theme.Row, Visible = false, Parent = panel,
-    }, { corner(5), sStroke })
+    }, { corner(6), sStroke })
     local sIcoBox = create("Frame", {
         AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 6, 0.5, 0),
         Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1, Parent = searchBar,
@@ -3882,12 +5328,13 @@ function SectionMT:AddDropdown(o)
     local paintX = crossIcon(sclear, 7, Theme.Muted)
     sclear.MouseEnter:Connect(function() paintX(Theme.Text, 0.12) end)
     sclear.MouseLeave:Connect(function() paintX(Theme.Muted, 0.12) end)
+    local sRing = focusRing(sStroke, 1, "Stroke", 0.3)
     sbox.Focused:Connect(function()
-        tween(sStroke, { Color = Theme.Accent, Transparency = 0 }, 0.15)
+        sRing(true)
         sIco.set(Theme.Accent, 0.15)
     end)
     sbox.FocusLost:Connect(function()
-        tween(sStroke, { Color = Theme.Stroke, Transparency = 0.3 }, 0.15)
+        sRing(false)
         sIco.set(Theme.Dim, 0.15)
     end)
 
@@ -3928,10 +5375,14 @@ function SectionMT:AddDropdown(o)
         tween(holder, { Size = UDim2.new(1, 0, 0, obj.Open and (H + 6 + ph + 8) or H) }, 0.22, SOFT, SOFT_DIR)
         tween(panel, { Size = UDim2.new(1, -16, 0, ph) }, 0.22, SOFT, SOFT_DIR)
         tween(list, { Size = UDim2.new(1, -8, 0, lh) }, 0.22, SOFT, SOFT_DIR)
-        tween(arrow, { Rotation = obj.Open and 180 or 0 }, 0.22, SOFT, SOFT_DIR)
+        if juice() > 0 then
+            tween(arrow, { Rotation = obj.Open and 180 or 0 }, 0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        else
+            tween(arrow, { Rotation = obj.Open and 180 or 0 }, 0.22, SOFT, SOFT_DIR)
+        end
         tween(chipStroke, { Color = obj.Open and Theme.Accent or Theme.Stroke, Transparency = obj.Open and 0 or 0.2 }, 0.2)
         for _, bar in ipairs(arrowBars) do
-            tween(bar, { BackgroundColor3 = obj.Open and Theme.Accent or Theme.Muted }, 0.2)
+            tween(bar, { BackgroundColor3 = obj.Open and Theme.AccentHi or Theme.Accent }, 0.2)
         end
     end
     local function applyFilter()
@@ -3963,6 +5414,9 @@ function SectionMT:AddDropdown(o)
         return obj.Value == opt
     end
     local function paintItem(b, sel)
+        -- el check de la opcion recien elegida hace "pop"
+        if sel and not b.sel and b.checkScale and obj.Open then popIn(b.checkScale, 0.3, 0.3) end
+        b.sel = sel
         tween(b.button, { BackgroundTransparency = sel and 0 or 1, BackgroundColor3 = sel and Theme.AccentSoft or Theme.RowHover }, 0.15)
         tween(b.bar, { BackgroundTransparency = sel and 0 or 1 }, 0.15)
         tween(b.label, { TextColor3 = sel and Theme.Accent or Theme.Text }, 0.15)
@@ -4007,6 +5461,24 @@ function SectionMT:AddDropdown(o)
             if sbox.Text ~= "" then sbox.Text = "" end -- reinicia el filtro al cerrar
         end
         resize()
+        -- las opciones entran en cascada (stagger corto, solo las primeras que se ven)
+        if obj.Open and juice() > 0 then
+            local i = 0
+            for _, opt in ipairs(options) do
+                local b = buttons[opt]
+                if b and b.button.Visible then
+                    i = i + 1
+                    if i > MAX_VISIBLE + 2 then break end
+                    local lbl = b.label
+                    lbl.TextTransparency = 1
+                    lbl.Position = UDim2.fromOffset(20, 0)
+                    task.delay((i - 1) * 0.03 / animSpeed(), function()
+                        tween(lbl, { TextTransparency = 0, Position = UDim2.fromOffset(12, 0) }, 0.22,
+                            Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                    end)
+                end
+            end
+        end
         if obj.Open and hasSearch() and not IS_TOUCH then
             task.defer(function() if obj.Open then sbox:CaptureFocus() end end)
         end
@@ -4038,7 +5510,7 @@ function SectionMT:AddDropdown(o)
             local btn = create("TextButton", {
                 Text = "", Size = UDim2.new(1, 0, 0, ITEM_H), BackgroundColor3 = Theme.RowHover,
                 BackgroundTransparency = 1, LayoutOrder = i, Parent = list,
-            }, { corner(5) })
+            }, { corner(6) })
             local bar = create("Frame", {
                 AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), Size = UDim2.fromOffset(2, 12),
                 BackgroundColor3 = Theme.Accent, BackgroundTransparency = 1, Parent = btn,
@@ -4059,7 +5531,8 @@ function SectionMT:AddDropdown(o)
                 markStroke.Parent = markBox
             end
             local check = checkIcon(mark, Theme.Accent)
-            local item = { button = btn, label = lbl, bar = bar, markBox = markBox, markStroke = markStroke, check = check }
+            local item = { button = btn, label = lbl, bar = bar, markBox = markBox, markStroke = markStroke, check = check,
+                checkScale = create("UIScale", { Parent = check.Frame }) }
             btn.MouseEnter:Connect(function()
                 if not isSelected(opt) then tween(btn, { BackgroundTransparency = 0 }, 0.12) end
             end)
@@ -4116,15 +5589,19 @@ function SectionMT:AddKeybind(o)
         AutomaticSize = Enum.AutomaticSize.X, TextTruncate = Enum.TextTruncate.None, Parent = r,
     }, nil)
     create("UICorner", { CornerRadius = UDim.new(0, 6), Parent = chip })
-    create("UIStroke", { Color = Theme.Stroke, Thickness = 1, Parent = chip })
+    local chipStroke = create("UIStroke", { Color = Theme.Stroke, Thickness = 1, Parent = chip })
     create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), Parent = chip })
+    local beat = pulse(chip, 1.1)
+    local ring = focusRing(chipStroke, 1, "Stroke", 0)
 
     local obj = {
         Type = "Keybind", Value = Enum.KeyCode.Unknown, Mode = o.Mode or "Press", Name = o.Name or "Keybind",
         Active = false, _callback = o.Callback,
     }
     decorate(self, obj, r, o)
+    local listening = false
     function obj:Set(key, silent)
+        if listening then listening = false beat(false) ring(false) end
         obj.Value = keyFromValue(key)
         chip.Text = keyName(obj.Value)
         chip.TextColor3 = Theme.Text
@@ -4140,6 +5617,10 @@ function SectionMT:AddKeybind(o)
         Library._binding = true
         chip.Text = "..."
         chip.TextColor3 = Theme.Accent
+        -- mientras espera la tecla el chip late y tiene el anillo dorado
+        listening = true
+        beat(true)
+        ring(true)
         local conn
         conn = UserInputService.InputBegan:Connect(function(input)
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
@@ -4174,7 +5655,7 @@ function SectionMT:AddTextBox(o)
         PlaceholderColor3 = Theme.Dim, ClearTextOnFocus = o.ClearOnFocus == true, Text = "",
         TextXAlignment = Enum.TextXAlignment.Left,
         TextTruncate = Enum.TextTruncate.AtEnd, Parent = r,
-    }, { corner(5), boxStroke, padding(8, 0, 8, 0) })
+    }, { corner(6), boxStroke, padding(8, 0, 8, 0) })
 
     local obj = { Type = "TextBox", Value = o.Numeric and 0 or "" }
     decorate(self, obj, r, o)
@@ -4186,9 +5667,10 @@ function SectionMT:AddTextBox(o)
     end
     function obj:Get() return obj.Value end
     function obj:SetText(t) nameLbl.Text = tostring(t) end
-    box.Focused:Connect(function() tween(boxStroke, { Color = Theme.Accent }, 0.15) end)
+    local ring = focusRing(boxStroke, 1, "Stroke", 0)
+    box.Focused:Connect(function() ring(true) end)
     box.FocusLost:Connect(function(enter)
-        tween(boxStroke, { Color = Theme.Stroke }, 0.15)
+        ring(false)
         if enter or o.CallbackOnBlur ~= false then obj:Set(box.Text) end
     end)
     if o.Default ~= nil then obj:Set(o.Default, true) end
@@ -4220,7 +5702,8 @@ function SectionMT:AddColorPicker(o)
     local swatch = create("Frame", {
         AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
         Size = UDim2.fromOffset(30, 16), BackgroundColor3 = Theme.Accent, Parent = head,
-    }, { corner(5), stroke(Theme.Stroke, 1, 0.4) })
+    }, { corner(6), sticker(nil, 1.5, 0) })
+    gloss(swatch, 6, 0.3, 1)
 
     local sv = create("Frame", {
         Position = UDim2.fromOffset(10, 42), Size = UDim2.new(1, -40, 0, PANEL_H),
@@ -4228,19 +5711,19 @@ function SectionMT:AddColorPicker(o)
     }, { corner(6) })
     create("Frame", {
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), Parent = sv,
-    }, { corner(7), create("UIGradient", {
+    }, { corner(8), create("UIGradient", {
         Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }),
     }) })
     create("Frame", {
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), Parent = sv,
-    }, { corner(7), create("UIGradient", {
+    }, { corner(8), create("UIGradient", {
         Rotation = 90,
         Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) }),
     }) })
     local svCursor = create("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(10, 10),
         BackgroundTransparency = 1, ZIndex = 3, Parent = sv,
-    }, { corner(5), stroke(Color3.new(1, 1, 1), 2) })
+    }, { corner(6), stroke(Color3.new(1, 1, 1), 2) })
     local svHit = create("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.fromScale(1, 1),
         ZIndex = 5, Parent = sv })
 
@@ -4272,7 +5755,7 @@ function SectionMT:AddColorPicker(o)
         BackgroundColor3 = Theme.Input, Font = Fonts.Bold, TextSize = 12, TextColor3 = Theme.Text,
         PlaceholderText = "#RRGGBB", PlaceholderColor3 = Theme.Dim, ClearTextOnFocus = false, Text = "",
         Parent = holder,
-    }, { corner(5), hexStroke })
+    }, { corner(6), hexStroke })
 
     local default = o.Default or Theme.Accent
     local h, s, v = default:ToHSV()
@@ -4323,9 +5806,10 @@ function SectionMT:AddColorPicker(o)
     dragger(hueHit, function(i) self:_lockScroll(true) hueMove(i.Position) end,
         function(i) hueMove(i.Position) end, function() self:_lockScroll(false) end)
 
-    hexBox.Focused:Connect(function() tween(hexStroke, { Color = Theme.Accent }, 0.15) end)
+    local hexRing = focusRing(hexStroke, 1, "Stroke", 0)
+    hexBox.Focused:Connect(function() hexRing(true) end)
     hexBox.FocusLost:Connect(function()
-        tween(hexStroke, { Color = Theme.Stroke }, 0.15)
+        hexRing(false)
         if not obj:SetHex(hexBox.Text) then hexBox.Text = toHex(obj.Value) end
     end)
 
@@ -4337,7 +5821,7 @@ function SectionMT:AddColorPicker(o)
         for i, col in ipairs(presets) do
             local sw = create("TextButton", {
                 Text = "", Size = UDim2.fromOffset(18, 18), BackgroundColor3 = col, LayoutOrder = i, Parent = row,
-            }, { corner(5), stroke(Theme.Outline, 1) })
+            }, { corner(6), stroke(Theme.Outline, 1) })
             sw.Activated:Connect(function() obj:Set(col) end)
         end
     end
@@ -4360,14 +5844,16 @@ function SectionMT:AddProgress(o)
     local r = self:_row(self:_eh(o) + 6, false, o)
     local nameLbl = label({ Text = o.Name or "Progress", Position = UDim2.fromOffset(12, 0),
         Size = UDim2.new(1, -80, 0, 24), Parent = r })
-    local valLbl = label({ Text = "", TextSize = 12, TextColor3 = Theme.Text, Font = Fonts.Bold,
+    local valLbl = label({ Text = "", TextSize = 12, TextColor3 = Theme.Accent, Font = Fonts.Bold,
         TextXAlignment = Enum.TextXAlignment.Right, AnchorPoint = Vector2.new(1, 0),
         Position = UDim2.new(1, -12, 0, 0), Size = UDim2.fromOffset(60, 24), Parent = r })
     local track = create("Frame", {
-        Position = UDim2.new(0, 12, 1, -14), Size = UDim2.new(1, -24, 0, 6), BackgroundColor3 = Theme.Input, Parent = r,
-    }, { corner(3) })
+        Position = UDim2.new(0, 12, 1, -16), Size = UDim2.new(1, -24, 0, 8), BackgroundColor3 = Theme.Input, Parent = r,
+    }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
     local fill = create("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = o.Color or Theme.Accent, Parent = track },
-        { corner(3) })
+        { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    gloss(fill, "full", 0.35, 1)
+    local nudgeSprinkles = glazeBar(fill, 12, 1)
     local obj = { Type = "Progress", Value = min, Savable = false }
     decorate(self, obj, r, o)
     function obj:Set(v, silent)
@@ -4375,12 +5861,14 @@ function SectionMT:AddProgress(o)
         obj.Value = v
         local a = (max == min) and 0 or (v - min) / (max - min)
         tween(fill, { Size = UDim2.fromScale(a, 1) }, 0.3, SOFT, Enum.EasingDirection.Out)
+        if obj._ready then nudgeSprinkles() end
         valLbl.Text = (o.ShowPercent == false) and tostring(v) or (math.floor(a * 100 + 0.5) .. "%")
         if not silent then fire(obj, o, v) end
     end
     function obj:Get() return obj.Value end
     function obj:SetText(t) nameLbl.Text = tostring(t) end
     obj:Set(o.Default or min, true)
+    obj._ready = true
     self:_register(o.Flag, obj)
     return obj
 end
@@ -4415,7 +5903,7 @@ function SectionMT:AddSegmented(o)
     local pill = create("Frame", {
         Size = UDim2.new(1 / math.max(#options, 1), -4, 1, -4), Position = UDim2.fromOffset(2, 2),
         BackgroundColor3 = Theme.AccentSoft, Parent = bar,
-    }, { corner(5), stroke(Theme.Accent, 1, 0.55) })
+    }, { corner(6), stroke(Theme.Accent, 1, 0.55) })
     sheen(pill, 0.1)
     local labels = {}
 
@@ -4832,7 +6320,7 @@ function SectionMT:AddCopyField(o)
         Text = "Copy", Font = Fonts.Bold, TextSize = 11, TextColor3 = Theme.OnAccent,
         AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -3, 0.5, 0), Size = UDim2.fromOffset(56, 18),
         BackgroundColor3 = Theme.Accent, Parent = field,
-    }, { corner(5) })
+    }, { corner(6) })
     hover(btn, "Accent", "AccentHi")
     pressFx(btn)
     sheen(btn, 0.14)
@@ -5011,7 +6499,7 @@ end
 
 function WindowMT:CreateSettingsTab(name, icon)
     local win = self
-    local tab = self:CreateTab(name or "Settings", icon or "S")
+    local tab = self:CreateTab(name or "Settings", icon or "settings")
 
     ----------------------------------------------------------------
     -- Apariencia: tema, color de acento y escala
@@ -5084,7 +6572,14 @@ function WindowMT:CreateSettingsTab(name, icon)
         Callback = function(v)
             Library.Config.Animations = v
             win:_saveState({ anim = v })
+            if win._breathe then win._breathe() end
+            refreshIdle()
         end,
+    })
+    ui:AddDropdown({
+        Name = "Effects", Options = { "Full", "Subtle", "Off" }, Default = win:GetJuice(),
+        Tooltip = "Full: rebotes, chispas y migajas. Subtle: rebotes suaves sin particulas. Off: solo lo basico",
+        Callback = function(v) if v then win:SetJuice(v, true) end end,
     })
     ui:AddToggle({
         Name = "Tooltips", Default = win.Config.Tooltip.Enabled ~= false,
