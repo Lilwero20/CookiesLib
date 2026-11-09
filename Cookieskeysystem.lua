@@ -29,6 +29,10 @@ local DefaultTheme = {
     Success    = rgb(96, 196, 124),
     Warning    = rgb(232, 148, 58),
     Error      = rgb(224, 92, 92),
+    -- estilo "galleta glaseada" (igual que CookiesLib): base dorada, contorno chocolate y sombra calida
+    AccentDeep = rgb(214, 150, 4),
+    Chocolate  = rgb(92, 46, 16),
+    Shadow     = rgb(14, 6, 2),
 }
 
 local DEFAULT_LOGO = "rbxassetid://76143769732706"
@@ -37,7 +41,52 @@ local DEFAULT_SDK = "https://www.keyforge.win/sdk/client.lua"
 
 local KeySystem = {}
 KeySystem.__index = KeySystem
-KeySystem.Version = "2.1.0"
+KeySystem.Version = "2.2.0"
+
+local GuiService = game:GetService("GuiService")
+local BLACK, WHITE = rgb(0, 0, 0), rgb(255, 255, 255)
+local TAU = math.pi * 2
+
+local function tryFont(name)
+    local ok, f = pcall(function() return Enum.Font[name] end)
+    return ok and f or nil
+end
+
+local function nseq(points)
+    local kps = {}
+    for i, p in ipairs(points) do kps[i] = NumberSequenceKeypoint.new(p[1], p[2]) end
+    return NumberSequence.new(kps)
+end
+
+-- Textura de resplandor radial: UNA sola imagen (circulo suave) tenida con ImageColor3, sin capas
+-- apiladas ni escalones. 1) asset propio (opts.GlowAsset o Library.Config.Assets.Glow);
+-- 2) si no, se genera una vez con EditableImage; 3) si el juego no lo permite, el glow no aparece.
+local GLOW_TEX
+local function glowTexture(asset)
+    if type(asset) == "string" and asset ~= "" then return asset end
+    if GLOW_TEX ~= nil then return GLOW_TEX end
+    GLOW_TEX = false
+    pcall(function()
+        local N = 128
+        local img = game:GetService("AssetService"):CreateEditableImage({ Size = Vector2.new(N, N) })
+        local buf = buffer.create(N * N * 4)
+        for y = 0, N - 1 do
+            for x = 0, N - 1 do
+                local dx, dy = (x + 0.5) / N * 2 - 1, (y + 0.5) / N * 2 - 1
+                local t = math.clamp(1 - math.sqrt(dx * dx + dy * dy), 0, 1)
+                local a = (t * t * (3 - 2 * t)) ^ 1.5
+                local i = (y * N + x) * 4
+                buffer.writeu8(buf, i, 255)
+                buffer.writeu8(buf, i + 1, 255)
+                buffer.writeu8(buf, i + 2, 255)
+                buffer.writeu8(buf, i + 3, math.floor(a * 255 + 0.5))
+            end
+        end
+        img:WritePixelsBuffer(Vector2.zero, Vector2.new(N, N), buf)
+        GLOW_TEX = Content.fromObject(img)
+    end)
+    return GLOW_TEX
+end
 
 local hasFS = typeof(writefile) == "function" and typeof(readfile) == "function"
     and typeof(isfolder) == "function" and typeof(makefolder) == "function"
@@ -148,6 +197,21 @@ local function buildTheme(opts)
             theme.OnAccent = lum > 0.55 and rgb(40, 20, 8) or rgb(254, 254, 254)
         end
     end
+    -- tokens de galleta: si el tema no los trae (o se cambio el acento) se derivan del acento
+    local changed = typeof(accent) == "Color3"
+    local function given(k) return type(custom) == "table" and custom[k] ~= nil end
+    if not theme.AccentDeep or (changed and not given("AccentDeep")) then
+        theme.AccentDeep = theme.Accent:Lerp(BLACK, 0.22)
+    end
+    if not theme.Chocolate or (changed and not given("Chocolate")) then
+        theme.Chocolate = rgb(64, 30, 10):Lerp(theme.Accent, 0.15)
+    end
+    if not theme.Shadow or (type(custom) == "table" and custom.Background and not given("Shadow")) then
+        theme.Shadow = theme.Background:Lerp(BLACK, 0.6)
+    end
+    theme.AccentHi = theme.AccentHi or theme.Accent:Lerp(WHITE, 0.25)
+    theme.AccentSoft = theme.AccentSoft or theme.Panel:Lerp(theme.Accent, 0.14)
+    theme.OnAccent = theme.OnAccent or rgb(40, 20, 8)
     return theme
 end
 
@@ -155,9 +219,29 @@ function KeySystem.new(opts)
     opts = opts or {}
     local Lib = opts.Library
     local Theme = buildTheme(opts)
-    local Fonts = (Lib and Lib.Fonts) or {
-        Title = Enum.Font.GothamBold, Body = Enum.Font.GothamMedium, Bold = Enum.Font.GothamBold,
-    }
+    local Fonts = table.clone((Lib and Lib.Fonts) or {
+        Title = tryFont("BuilderSansBold") or Enum.Font.GothamBold,
+        Body = tryFont("BuilderSans") or Enum.Font.GothamMedium,
+        Bold = tryFont("BuilderSansBold") or Enum.Font.GothamBold,
+    })
+    -- letras redondas del wordmark de Cookies (igual que el titulo de la libreria)
+    Fonts.Brand = Fonts.Brand or tryFont("FredokaOne") or Fonts.Title
+
+    -- Juice: "Full" (todo), "Subtle" (sin particulas) u "Off" (sin animaciones decorativas).
+    -- Si no se pasa, se usa el de la libreria (si viene en opts.Library) o "Full".
+    local juiceName = opts.Juice
+    if juiceName == nil and Lib then
+        pcall(function()
+            local c = Lib.Config
+            if c and c.Animations == false then juiceName = "Off" else juiceName = c and c.Juice end
+        end)
+    end
+    juiceName = tostring(juiceName or "Full"):lower()
+    local J = (juiceName == "off" and 0) or (juiceName == "subtle" and 1) or 2
+    local glowAsset = opts.GlowAsset
+    if glowAsset == nil and Lib then
+        pcall(function() glowAsset = Lib.Config.Assets.Glow end)
+    end
 
     local cfg = {
         Title         = opts.Title or "Cookies Hub",
@@ -270,7 +354,7 @@ function KeySystem.new(opts)
         Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Background,
         GroupTransparency = 1, Parent = holder,
     }, {
-        create("UICorner", { CornerRadius = UDim.new(0, 14) }),
+        create("UICorner", { CornerRadius = UDim.new(0, 12) }),
         create("UIStroke", { Color = Theme.Stroke, Thickness = 1, Transparency = 0.1,
             ApplyStrokeMode = Enum.ApplyStrokeMode.Border }),
         create("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.new(1, 1, 1), rgb(200, 200, 200)) }),
@@ -322,6 +406,152 @@ function KeySystem.new(opts)
         return f
     end
 
+    -- lo decorativo nunca recibe clicks ni tapa controles
+    local function noInput(inst)
+        pcall(function() inst.Interactable = false end)
+        pcall(function() inst.Active = false end)
+        return inst
+    end
+    -- franja de luz (gloss) en la mitad de arriba, como el brillo del logo
+    local function gloss(parent, radius, strength, z)
+        local s = strength or 0.25
+        return noInput(create("Frame", {
+            Size = UDim2.new(1, 0, 0.55, 0), BackgroundColor3 = WHITE, ZIndex = z or 1, Parent = parent,
+        }, {
+            corner(radius or 8),
+            create("UIGradient", { Rotation = 90, Transparency = nseq({ { 0, 1 - s }, { 0.55, 1 - s * 0.3 }, { 1, 1 } }) }),
+        }))
+    end
+    -- contorno chocolate estilo sticker (el borde grueso del logo)
+    local function sticker(parent, thickness, transparency)
+        local s = stroke(Theme.Chocolate, thickness or 1.5, transparency or 0)
+        s.Parent = parent
+        return s
+    end
+    -- brillo que cruza la superficie. Devuelve la funcion que lo dispara (no se encima consigo mismo).
+    local function shine(host, radius, strength, z)
+        local s = strength or 0.28
+        local f = noInput(create("Frame", {
+            Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, ZIndex = z or 1, Parent = host,
+        }, { corner(radius or 8) }))
+        local g = create("UIGradient", {
+            Rotation = 18, Offset = Vector2.new(-1, 0),
+            Transparency = nseq({ { 0, 1 }, { 0.38, 1 }, { 0.5, 1 - s }, { 0.62, 1 }, { 1, 1 } }), Parent = f,
+        })
+        local busy = false
+        return function()
+            if busy or J == 0 or not f.Parent then return end
+            busy = true
+            g.Offset = Vector2.new(-1, 0)
+            local tw = tween(g, { Offset = Vector2.new(1, 0) }, 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+            tw.Completed:Once(function() busy = false end)
+        end
+    end
+    -- onda desde el punto del click (host con ClipsDescendants; queda debajo del texto)
+    local function ripple(host, input, color, z)
+        if J == 0 or not host.Parent then return end
+        local a, s = host.AbsolutePosition, host.AbsoluteSize
+        local rx, ry = 0.5, 0.5
+        if input and input.Position then
+            local inset = Vector2.zero
+            pcall(function() inset = GuiService:GetGuiInset() end)
+            local p = Vector2.new(input.Position.X, input.Position.Y) + inset
+            rx = math.clamp((p.X - a.X) / math.max(s.X, 1), 0, 1)
+            ry = math.clamp((p.Y - a.Y) / math.max(s.Y, 1), 0, 1)
+        end
+        local dot = noInput(create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(rx, ry), Size = UDim2.fromScale(0, 0),
+            SizeConstraint = Enum.SizeConstraint.RelativeXX, BackgroundColor3 = color or WHITE,
+            BackgroundTransparency = 0.6, ZIndex = z or 1, Parent = host,
+        }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) }))
+        tween(dot, { Size = UDim2.fromScale(2.4, 2.4), BackgroundTransparency = 1 }, 0.55, Enum.EasingStyle.Quad)
+        task.delay(0.6, function() dot:Destroy() end)
+    end
+    -- glow radial suave: un solo ImageLabel (si no hay textura posible, queda oculto)
+    local function glowBlob(parent, pos, size, color, strength, z)
+        local img = noInput(create("ImageLabel", {
+            AnchorPoint = Vector2.new(0.5, 0.5), Position = pos, Size = size, ImageColor3 = color,
+            ImageTransparency = 1 - strength, ZIndex = z or 1, Parent = parent,
+        }))
+        local tex = glowTexture(glowAsset)
+        if type(tex) == "string" then
+            img.Image = tex
+        elseif tex then
+            if not pcall(function() img.ImageContent = tex end) then img.Visible = false end
+        else
+            img.Visible = false
+        end
+        return img
+    end
+
+    -- Particulas (chispas, migajas y sprinkles): pool de 24 que se reutilizan, nada se crea por frame.
+    -- Solo con Juice "Full". Van en una capa encima de la tarjeta para poder salirse de ella.
+    local fxLayer, fxFree, fxCount = nil, {}, 0
+    local function particle()
+        local p = table.remove(fxFree)
+        if p then return p end
+        if fxCount >= 24 then return nil end
+        if not fxLayer then
+            fxLayer = noInput(create("Frame", {
+                Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 20, Parent = gui,
+            }))
+        end
+        fxCount = fxCount + 1
+        return noInput(create("Frame", {
+            AnchorPoint = Vector2.new(0.5, 0.5), ZIndex = 21, Visible = false, Parent = fxLayer,
+        }, { corner(2) }))
+    end
+    local SPRINKLE_KEYS = { "Text", "Error", "Success", "Chocolate" }
+    local function burst(inst, n, kind)
+        if J < 2 or not inst or not inst.Parent or not gui.Parent then return end
+        local c = inst.AbsolutePosition + inst.AbsoluteSize / 2 - gui.AbsolutePosition
+        local crumb, spr = kind == "crumb", kind == "sprinkle"
+        local t = crumb and 0.62 or (spr and 0.6 or 0.45)
+        for i = 1, n do
+            local p = particle()
+            if not p then break end
+            local ang = (i / n) * TAU + math.random() * 0.9
+            local dist = (crumb and 30 or (spr and 34 or 20)) + math.random() * 14
+            local col
+            if crumb then
+                col = (i % 2 == 0) and Theme.Chocolate or Theme.AccentDeep
+            elseif spr then
+                col = Theme[SPRINKLE_KEYS[(i - 1) % #SPRINKLE_KEYS + 1]]
+            else
+                col = (i % 3 == 0) and Theme.AccentDeep or ((i % 2 == 0) and Theme.AccentHi or Theme.Accent)
+            end
+            local sz = crumb and math.random(4, 7) or math.random(3, 5)
+            p.BackgroundColor3, p.BackgroundTransparency = col, 0
+            p.Size = spr and UDim2.fromOffset(8, 3) or UDim2.fromOffset(sz, sz)
+            p.Rotation = math.random(0, 180)
+            p.Position = UDim2.fromOffset(c.X, c.Y)
+            p.Visible = true
+            -- migajas y sprinkles caen un poco (gravedad); las chispas salen casi rectas
+            local gx = math.cos(ang) * dist
+            local gy = math.sin(ang) * dist + (crumb and 18 or (spr and 12 or 3))
+            tween(p, {
+                Position = UDim2.fromOffset(c.X + gx, c.Y + gy), Rotation = p.Rotation + math.random(-160, 160),
+                Size = UDim2.fromOffset(1, 1), BackgroundTransparency = 1,
+            }, t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            task.delay(t + 0.03, function()
+                p.Visible = false
+                table.insert(fxFree, p)
+            end)
+        end
+    end
+    -- presion elastica: encoge al bajar y vuelve con rebote suave al soltar
+    -- target: lo que se encoge (por defecto el mismo boton)
+    local function pressScale(btn, down, target)
+        local sc = create("UIScale", { Parent = target or btn })
+        btn.MouseButton1Down:Connect(function()
+            tween(sc, { Scale = down or 0.96 }, 0.08, Enum.EasingStyle.Quad)
+        end)
+        local function up() tween(sc, { Scale = 1 }, J > 0 and 0.32 or 0.12, Enum.EasingStyle.Back) end
+        btn.MouseButton1Up:Connect(up)
+        btn.MouseLeave:Connect(up)
+        return sc
+    end
+
     ----------------------------------------------------------------
     -- Columna izquierda
     ----------------------------------------------------------------
@@ -332,18 +562,57 @@ function KeySystem.new(opts)
     local dragBar = create("Frame", {
         BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 72), ZIndex = 2, Parent = left,
     })
+    -- luz interna de 1 px arriba de la tarjeta (borde biselado)
+    noInput(create("Frame", {
+        Position = UDim2.fromOffset(14, 1), Size = UDim2.new(1, -28, 0, 1), BackgroundColor3 = WHITE,
+        BackgroundTransparency = 0.88, ZIndex = 4, Parent = root,
+    }, { create("UIGradient", { Transparency = nseq({ { 0, 1 }, { 0.25, 0 }, { 0.75, 0 }, { 1, 1 } }) }) }))
+
     local hasLogo = cfg.Logo ~= nil and cfg.Logo ~= false and cfg.Logo ~= ""
-    local logoImg
+    local logoImg, logoScale, logoGlow
+    local GLOW_REST, GLOW_SIZE = 0.68, 84
     if hasLogo then
-        logoImg = create("ImageLabel", {
+        -- resplandor dorado suave detras de la galleta (una sola imagen, sin anillos)
+        logoGlow = glowBlob(left, UDim2.fromOffset(43, 41), UDim2.fromOffset(GLOW_SIZE, GLOW_SIZE),
+            Theme.Accent, 0, 2)
+        logoImg = create("ImageButton", {
             Image = cfg.Logo, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(43, 41),
-            Size = UDim2.fromOffset(38, 38), ScaleType = Enum.ScaleType.Fit, ZIndex = 3, Parent = left,
+            Size = UDim2.fromOffset(40, 40), ScaleType = Enum.ScaleType.Fit, BackgroundTransparency = 1,
+            ZIndex = 3, Parent = left,
         })
+        logoScale = create("UIScale", { Scale = 1, Parent = logoImg })
+        logoImg.MouseEnter:Connect(function()
+            if J == 0 then return end
+            tween(logoScale, { Scale = 1.07 }, 0.25, Enum.EasingStyle.Back)
+            tween(logoGlow, { ImageTransparency = GLOW_REST - 0.12 }, 0.25)
+        end)
+        logoImg.MouseLeave:Connect(function()
+            tween(logoScale, { Scale = 1 }, 0.25, Enum.EasingStyle.Quad)
+            tween(logoGlow, { ImageTransparency = GLOW_REST }, 0.3)
+        end)
+        -- easter egg: 5 clicks rapidos en la galleta y da una vuelta soltando migajas
+        local clicks, lastClick, spinning = 0, 0, false
+        logoImg.Activated:Connect(function()
+            local now = os.clock()
+            clicks = (now - lastClick < 0.6) and clicks + 1 or 1
+            lastClick = now
+            if J == 0 then return end
+            logoScale.Scale = 0.9
+            tween(logoScale, { Scale = 1.07 }, 0.3, Enum.EasingStyle.Back)
+            if clicks >= 5 and not spinning then
+                clicks, spinning = 0, true
+                logoImg.Rotation = 0
+                local tw = tween(logoImg, { Rotation = 360 }, 0.75, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                tw.Completed:Once(function() logoImg.Rotation = 0 spinning = false end)
+                burst(logoImg, 10, "crumb")
+                task.delay(0.12, function() burst(logoImg, 8, "sprinkle") end)
+            end
+        end)
     end
-    local tx = hasLogo and 72 or 24
+    local tx = hasLogo and 74 or 24
     label({
-        Text = cfg.Title, Font = Fonts.Title, TextSize = 18, Position = UDim2.fromOffset(tx, 22),
-        Size = UDim2.new(1, -(tx + 12), 0, 22), ZIndex = 3, Parent = left,
+        Text = cfg.Title, Font = Fonts.Brand, TextSize = 20, Position = UDim2.fromOffset(tx, 21),
+        Size = UDim2.new(1, -(tx + 12), 0, 24), ZIndex = 3, Parent = left,
     })
     label({
         Text = cfg.Subtitle, TextSize = 11, TextColor3 = Theme.Dim, Position = UDim2.fromOffset(tx, 44),
@@ -374,7 +643,7 @@ function KeySystem.new(opts)
     local inputRow = create("Frame", {
         Position = UDim2.fromOffset(24, INPUT_Y), Size = UDim2.new(1, -48, 0, 40),
         BackgroundColor3 = Theme.Input, Parent = left,
-    }, { corner(10) })
+    }, { corner(8) })
     local inputStroke = stroke(Theme.Stroke, 1, 0.1)
     inputStroke.Parent = inputRow
 
@@ -399,28 +668,56 @@ function KeySystem.new(opts)
         pasteBtn.MouseLeave:Connect(function()
             tween(pasteBtn, { BackgroundColor3 = Theme.Row, TextColor3 = Theme.Muted }, 0.15)
         end)
+        pressScale(pasteBtn, 0.92)
     end
-    keyBox.Focused:Connect(function() tween(inputStroke, { Color = Theme.Accent, Transparency = 0 }, 0.18) end)
+    -- foco: el borde se pone dorado y un poco mas grueso
+    keyBox.Focused:Connect(function()
+        tween(inputStroke, { Color = Theme.Accent, Transparency = 0, Thickness = 1.6 }, 0.18)
+    end)
     keyBox.FocusLost:Connect(function()
+        tween(inputStroke, { Thickness = 1 }, 0.2)
         if not self._errorShown then tween(inputStroke, { Color = Theme.Stroke, Transparency = 0.1 }, 0.18) end
     end)
 
+    -- Boton Verify estilo "galleta gruesa": la base oscura se ve debajo de la cara glaseada.
+    -- Al presionar, la cara baja y tapa la base (como una galleta que se hunde).
+    local DEPTH = 3
     local verifyBtn = create("TextButton", {
-        Text = "", Position = UDim2.fromOffset(24, INPUT_Y + 50), Size = UDim2.new(1, -48, 0, 40),
-        BackgroundColor3 = Theme.Accent, ClipsDescendants = true, Parent = left,
-    }, { corner(10), create("UIGradient", {
-        Rotation = 90, Color = ColorSequence.new(rgb(255, 255, 255), rgb(220, 220, 220)),
+        Text = "", Position = UDim2.fromOffset(24, INPUT_Y + 50), Size = UDim2.new(1, -48, 0, 42),
+        BackgroundColor3 = Theme.AccentDeep, Parent = left,
+    }, { corner(8) })
+    sticker(verifyBtn, 1.5, 0.2)
+    local face = create("Frame", {
+        Size = UDim2.new(1, 0, 1, -DEPTH), BackgroundColor3 = Theme.Accent, ClipsDescendants = true, Parent = verifyBtn,
+    }, { corner(8), create("UIGradient", {
+        Rotation = 90, Color = ColorSequence.new(rgb(255, 255, 255), rgb(222, 222, 222)),
     }) })
+    noInput(face)
+    gloss(face, 8, 0.22, 1)
+    local playShine = shine(face, 8, 0.32, 3)
     local verifyScale = create("UIScale", { Scale = 1, Parent = verifyBtn })
     local verifyLbl = label({
         Text = "Verify", Font = Fonts.Bold, TextSize = 14, TextColor3 = Theme.OnAccent,
-        TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = verifyBtn,
+        TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = face,
     })
+    -- color de la cara y de su base (la base siempre un tono mas oscuro)
+    local faceColor = Theme.Accent
+    local function setFace(color, t)
+        faceColor = color
+        local deep = (color == Theme.Accent or color == Theme.AccentHi) and Theme.AccentDeep or color:Lerp(BLACK, 0.3)
+        tween(face, { BackgroundColor3 = color }, t or 0.15)
+        tween(verifyBtn, { BackgroundColor3 = deep }, t or 0.15)
+    end
+    -- cara hundida (mientras carga) o arriba
+    local function setSunk(on)
+        tween(face, { Position = UDim2.fromOffset(0, on and DEPTH - 1 or 0) }, on and 0.08 or 0.3,
+            on and Enum.EasingStyle.Quad or Enum.EasingStyle.Back)
+    end
 
     -- spinner: aro con degradado en el borde que gira mientras se verifica
     local spinner = create("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, -58, 0.5, 0),
-        Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1, Visible = false, ZIndex = 2, Parent = verifyBtn,
+        Size = UDim2.fromOffset(16, 16), BackgroundTransparency = 1, Visible = false, ZIndex = 2, Parent = face,
     }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
     local spinStroke = create("UIStroke", { Color = Theme.Accent, Thickness = 2, Parent = spinner })
     create("UIGradient", {
@@ -433,15 +730,10 @@ function KeySystem.new(opts)
     -- check que aparece al validar la key
     local okMark = create("Frame", {
         AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, -66, 0.5, 0),
-        Size = UDim2.fromOffset(20, 20), BackgroundTransparency = 1, Visible = false, ZIndex = 2, Parent = verifyBtn,
+        Size = UDim2.fromOffset(20, 20), BackgroundTransparency = 1, Visible = false, ZIndex = 2, Parent = face,
     })
     local okScale = create("UIScale", { Scale = 0, Parent = okMark })
     checkMark(okMark, rgb(255, 255, 255), 3)
-
-    local sheen = create("Frame", {
-        Size = UDim2.new(0, 46, 2, 0), Position = UDim2.new(0, -60, -0.5, 0), Rotation = 18,
-        BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.85, ZIndex = 3, Parent = verifyBtn,
-    })
 
     local optRow = create("Frame", {
         BackgroundTransparency = 1, Position = UDim2.fromOffset(24, INPUT_Y + 102), Size = UDim2.new(1, -48, 0, 18),
@@ -478,13 +770,21 @@ function KeySystem.new(opts)
     local function paintCheck(animate)
         local t = animate and 0.18 or 0
         tween(box, { BackgroundColor3 = remember and Theme.Accent or Theme.Input }, t)
-        tween(boxStroke, { Color = remember and Theme.Accent or Theme.Stroke }, t)
-        tween(boxCheckScale, { Scale = remember and 1 or 0 }, t, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        -- marcado: contorno chocolate de sticker, como el logo
+        tween(boxStroke, { Color = remember and Theme.Chocolate or Theme.Stroke }, t)
+        if animate and remember and J > 0 then
+            boxCheckScale.Scale = 0.3
+            tween(boxCheckScale, { Scale = 1 }, 0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+        else
+            tween(boxCheckScale, { Scale = remember and 1 or 0 }, t, Enum.EasingStyle.Quad)
+        end
     end
     paintCheck(false)
+    pressScale(checkBtn, 0.85, box)
     checkBtn.Activated:Connect(function()
         remember = not remember
         paintCheck(true)
+        if remember then burst(box, 6, "sprinkle") end
     end)
 
     -- estado: punto de color + mensaje
@@ -497,6 +797,8 @@ function KeySystem.new(opts)
         AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(6, 6),
         BackgroundColor3 = Theme.Muted, BackgroundTransparency = 1, Parent = statusRow,
     }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+    local dotScale = create("UIScale", { Scale = 1, Parent = statusDot })
+    local dotTween
     local statusLbl = label({
         Text = "", TextSize = 11, TextColor3 = Theme.Muted, TextTransparency = 1,
         Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -12, 1, 0), Parent = statusRow,
@@ -539,7 +841,11 @@ function KeySystem.new(opts)
     local panel = create("Frame", {
         AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 52),
         Size = UDim2.new(0, PANEL_W, 1, -64), BackgroundColor3 = Theme.Panel, Parent = root,
-    }, { corner(12), stroke(Theme.Stroke, 1, 0.45) })
+    }, { corner(10), stroke(Theme.Stroke, 1, 0.45) })
+    noInput(create("Frame", {
+        Position = UDim2.fromOffset(10, 1), Size = UDim2.new(1, -20, 0, 1), BackgroundColor3 = WHITE,
+        BackgroundTransparency = 0.92, Parent = panel,
+    }, { create("UIGradient", { Transparency = nseq({ { 0, 1 }, { 0.25, 0 }, { 0.75, 0 }, { 1, 1 } }) }) }))
 
     label({
         Text = "Need a key?", Font = Fonts.Bold, TextSize = 13,
@@ -550,11 +856,13 @@ function KeySystem.new(opts)
         local y = 40
         for i, step in ipairs(cfg.Steps) do
             if i > 3 then break end
+            -- numero en "chispa de chocolate": dorado con contorno chocolate, como el logo
             create("TextLabel", {
-                Text = tostring(i), Font = Fonts.Bold, TextSize = 10, TextColor3 = Theme.Accent,
-                BackgroundTransparency = 0, BackgroundColor3 = Theme.AccentSoft,
+                Text = tostring(i), Font = Fonts.Bold, TextSize = 10, TextColor3 = Theme.OnAccent,
+                BackgroundTransparency = 0, BackgroundColor3 = Theme.Accent,
                 Position = UDim2.fromOffset(16, y + 2), Size = UDim2.fromOffset(18, 18), Parent = panel,
-            }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+            }, { create("UICorner", { CornerRadius = UDim.new(1, 0) }),
+                stroke(Theme.Chocolate, 1.2, 0.1) })
             label({
                 Text = tostring(step), TextSize = 11, TextColor3 = Theme.Muted, TextWrapped = true,
                 TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top,
@@ -576,18 +884,23 @@ function KeySystem.new(opts)
         local over = primary and Theme.AccentSoft:Lerp(Theme.Accent, 0.25) or Theme.RowHover
         local b = create("TextButton", {
             Text = "", Position = UDim2.fromOffset(12, y), Size = UDim2.new(1, -24, 0, 36),
-            BackgroundColor3 = normal, Parent = panel,
-        }, { corner(9), stroke(primary and Theme.Accent or Theme.Stroke, 1, primary and 0.55 or 0.5) })
+            BackgroundColor3 = normal, ClipsDescendants = true, Parent = panel,
+        }, { corner(8), stroke(primary and Theme.Accent or Theme.Stroke, 1, primary and 0.55 or 0.5) })
+        gloss(b, 8, primary and 0.1 or 0.06, 1)
+        local playB = shine(b, 8, primary and 0.18 or 0.1, 1)
         local l = label({
             Text = text, Font = Fonts.Bold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center,
-            TextColor3 = primary and Theme.Accent or Theme.Text, Size = UDim2.fromScale(1, 1), Parent = b,
+            TextColor3 = primary and Theme.Accent or Theme.Text, Size = UDim2.fromScale(1, 1), ZIndex = 2, Parent = b,
         })
-        b.MouseEnter:Connect(function() tween(b, { BackgroundColor3 = over }, 0.15) end)
+        b.MouseEnter:Connect(function()
+            tween(b, { BackgroundColor3 = over }, 0.15)
+            playB()
+        end)
         b.MouseLeave:Connect(function() tween(b, { BackgroundColor3 = normal }, 0.15) end)
-        local sc = create("UIScale", { Parent = b })
-        b.MouseButton1Down:Connect(function() tween(sc, { Scale = 0.97 }, 0.08) end)
-        b.MouseButton1Up:Connect(function() tween(sc, { Scale = 1 }, 0.15, Enum.EasingStyle.Back) end)
-        b.MouseLeave:Connect(function() tween(sc, { Scale = 1 }, 0.15) end)
+        b.InputBegan:Connect(function(input)
+            if isPress(input) then ripple(b, input, primary and Theme.Accent or WHITE, 1) end
+        end)
+        pressScale(b, 0.96)
         return b, l
     end
 
@@ -692,7 +1005,7 @@ function KeySystem.new(opts)
         Text = "", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -14, 0, 14),
         Size = UDim2.fromOffset(28, 28), BackgroundColor3 = Theme.Row, BackgroundTransparency = 1,
         ZIndex = 6, Parent = root,
-    }, { corner(8) })
+    }, { corner(6) })
     local xBars = {}
     for _, rot in ipairs({ 45, -45 }) do
         table.insert(xBars, create("Frame", {
@@ -701,14 +1014,21 @@ function KeySystem.new(opts)
             Parent = closeBtn,
         }, { corner(1) }))
     end
+    -- hover: fondo rojo del tema y la X da un cuarto de vuelta
     closeBtn.MouseEnter:Connect(function()
-        tween(closeBtn, { BackgroundColor3 = rgb(110, 40, 36), BackgroundTransparency = 0 }, 0.15)
-        for _, b in ipairs(xBars) do tween(b, { BackgroundColor3 = Theme.Text }, 0.15) end
+        tween(closeBtn, { BackgroundColor3 = Theme.Error:Lerp(Theme.Background, 0.45), BackgroundTransparency = 0 }, 0.15)
+        for i, b in ipairs(xBars) do
+            tween(b, { BackgroundColor3 = Theme.Text, Rotation = (i == 1 and 45 or -45) + (J > 0 and 90 or 0) }, 0.3,
+                Enum.EasingStyle.Back)
+        end
     end)
     closeBtn.MouseLeave:Connect(function()
         tween(closeBtn, { BackgroundTransparency = 1 }, 0.15)
-        for _, b in ipairs(xBars) do tween(b, { BackgroundColor3 = Theme.Muted }, 0.15) end
+        for i, b in ipairs(xBars) do
+            tween(b, { BackgroundColor3 = Theme.Muted, Rotation = i == 1 and 45 or -45 }, 0.25, Enum.EasingStyle.Quad)
+        end
     end)
+    pressScale(closeBtn, 0.88)
 
     do
         local startInput, startPos, dragTween
@@ -888,10 +1208,28 @@ function KeySystem.new(opts)
         self._errorShown = true
         tween(inputStroke, { Color = Theme.Error, Transparency = 0 }, 0.12)
         local base = UDim2.fromOffset(24, INPUT_Y)
+        -- la galleta se desmorona un poco: migajas desde el input
+        burst(inputRow, 6, "crumb")
+        -- la cara del boton parpadea en rojo y vuelve sola
+        if not self._locked then
+            setFace(Theme.Error, 0.1)
+            task.delay(0.4, function()
+                if not self._busy and not self._locked and not self.Done and faceColor == Theme.Error then
+                    setFace(Theme.Accent, 0.35)
+                end
+            end)
+        end
         task.spawn(function()
-            for _, dx in ipairs({ 7, -7, 5, -5, 2, 0 }) do
-                tween(inputRow, { Position = UDim2.fromOffset(24 + dx, INPUT_Y) }, 0.05, Enum.EasingStyle.Quad)
-                task.wait(0.05)
+            -- sacudida amortiguada continua (seno que se apaga): suave, sin saltos entre pasos
+            if J > 0 then
+                local t0, DUR = os.clock(), 0.42
+                while true do
+                    local t = os.clock() - t0
+                    if t >= DUR or not inputRow.Parent then break end
+                    local dx = math.sin(t * 46) * 8 * math.exp(-t * 7.5)
+                    inputRow.Position = UDim2.fromOffset(24 + dx, INPUT_Y)
+                    RunService.Heartbeat:Wait()
+                end
             end
             inputRow.Position = base
             task.wait(0.9)
@@ -904,8 +1242,11 @@ function KeySystem.new(opts)
 
     local function setLoading(on, text)
         self._busy = on
+        if dotTween then dotTween:Cancel() dotTween = nil end
+        dotScale.Scale = 1
         if on then
-            tween(verifyBtn, { BackgroundColor3 = Theme.AccentSoft }, 0.15)
+            setFace(Theme.AccentSoft, 0.15)
+            setSunk(true)
             verifyLbl.TextColor3 = Theme.Accent
             verifyLbl.Text = text or "Verifying..."
             spinner.Visible = true
@@ -915,12 +1256,19 @@ function KeySystem.new(opts)
             spinTween = TweenService:Create(spinner, TweenInfo.new(0.75, Enum.EasingStyle.Linear,
                 Enum.EasingDirection.In, -1), { Rotation = 360 })
             spinTween:Play()
+            -- el punto de estado "respira" mientras se espera
+            if J > 0 then
+                dotTween = TweenService:Create(dotScale, TweenInfo.new(0.5, Enum.EasingStyle.Sine,
+                    Enum.EasingDirection.InOut, -1, true), { Scale = 1.6 })
+                dotTween:Play()
+            end
         else
             if spinTween then spinTween:Cancel() spinTween = nil end
             spinner.Visible = false
             verifyLbl.Text = "Verify"
             verifyLbl.TextColor3 = Theme.OnAccent
-            tween(verifyBtn, { BackgroundColor3 = Theme.Accent }, 0.2)
+            setFace(Theme.Accent, 0.2)
+            setSunk(false)
         end
     end
 
@@ -938,7 +1286,7 @@ function KeySystem.new(opts)
                 local s = math.ceil(endAt - os.clock())
                 setStatus("Too many attempts. Wait " .. s .. "s", Theme.Warning)
                 verifyLbl.Text = "Wait " .. s .. "s"
-                tween(verifyBtn, { BackgroundColor3 = Theme.Row }, 0.15)
+                if faceColor ~= Theme.Row then setFace(Theme.Row, 0.25) end
                 verifyLbl.TextColor3 = Theme.Muted
                 task.wait(math.min(1, math.max(endAt - os.clock(), 0.05)))
             end
@@ -948,7 +1296,8 @@ function KeySystem.new(opts)
             updateAttempts()
             verifyLbl.Text = "Verify"
             verifyLbl.TextColor3 = Theme.OnAccent
-            tween(verifyBtn, { BackgroundColor3 = Theme.Accent }, 0.2)
+            setFace(Theme.Accent, 0.25)
+            playShine()
             setStatus("You can try again now", Theme.Muted)
         end)
     end
@@ -998,11 +1347,20 @@ function KeySystem.new(opts)
                 verifyLbl.TextColor3 = rgb(255, 255, 255)
                 verifyLbl.Position = UDim2.fromOffset(10, 0)
                 okMark.Visible = true
-                tween(okScale, { Scale = 1 }, 0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-                tween(verifyBtn, { BackgroundColor3 = Theme.Success }, 0.2)
+                tween(okScale, { Scale = 1 }, 0.38, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+                setFace(Theme.Success, 0.2)
                 tween(inputStroke, { Color = Theme.Success, Transparency = 0 }, 0.2)
                 setStatus(msg or "Access granted. Welcome!", Theme.Success)
-                task.wait(0.8)
+                -- celebracion: sprinkles desde el boton, la galleta salta y su glow se pone verde
+                playShine()
+                burst(face, 14, "sprinkle")
+                task.delay(0.08, function() burst(face, 8, "spark") end)
+                if logoImg and J > 0 then
+                    logoScale.Scale = 1.18
+                    tween(logoScale, { Scale = 1 }, 0.5, Enum.EasingStyle.Back)
+                    tween(logoGlow, { ImageColor3 = Theme.Success, ImageTransparency = GLOW_REST - 0.18 }, 0.3)
+                end
+                task.wait(0.9)
                 outro(function()
                     finish(true, key)
                     if cfg.OnSuccess then task.spawn(cfg.OnSuccess, key) end
@@ -1035,18 +1393,43 @@ function KeySystem.new(opts)
     end
     self.Submit = function(_, k) submit(k or keyBox.Text) end
 
+    local function idleFace() return not self._busy and not self._locked and not self.Done end
     verifyBtn.MouseEnter:Connect(function()
-        if not self._busy and not self._locked then tween(verifyBtn, { BackgroundColor3 = Theme.AccentHi }, 0.15) end
-    end)
-    verifyBtn.MouseLeave:Connect(function()
-        tween(verifyScale, { Scale = 1 }, 0.15)
-        if not self._busy and not self._locked and not self.Done then
-            tween(verifyBtn, { BackgroundColor3 = Theme.Accent }, 0.15)
+        if idleFace() and faceColor == Theme.Accent then
+            setFace(Theme.AccentHi, 0.15)
+            playShine()
         end
     end)
-    verifyBtn.MouseButton1Down:Connect(function() tween(verifyScale, { Scale = 0.98 }, 0.08) end)
-    verifyBtn.MouseButton1Up:Connect(function() tween(verifyScale, { Scale = 1 }, 0.15, Enum.EasingStyle.Back) end)
-    verifyBtn.Activated:Connect(function() submit(keyBox.Text) end)
+    verifyBtn.MouseLeave:Connect(function()
+        tween(verifyScale, { Scale = 1 }, 0.2, Enum.EasingStyle.Quad)
+        if idleFace() then
+            setSunk(false)
+            if faceColor == Theme.AccentHi then setFace(Theme.Accent, 0.15) end
+        end
+    end)
+    verifyBtn.InputBegan:Connect(function(input)
+        if not isPress(input) or not idleFace() then return end
+        setSunk(true)
+        tween(verifyScale, { Scale = 0.99 }, 0.08)
+        ripple(face, input, WHITE, 1)
+    end)
+    verifyBtn.MouseButton1Up:Connect(function()
+        tween(verifyScale, { Scale = 1 }, 0.3, Enum.EasingStyle.Back)
+        if idleFace() then setSunk(false) end
+    end)
+    verifyBtn.Activated:Connect(function()
+        if idleFace() then burst(verifyBtn, 7, "crumb") end
+        submit(keyBox.Text)
+    end)
+    -- cada tanto un brillo cruza el boton (solo en reposo; con Juice Off no corre)
+    if J > 0 then
+        task.spawn(function()
+            while face.Parent and not self.Done do
+                task.wait(5)
+                if face.Parent and idleFace() and faceColor == Theme.Accent then playShine() end
+            end
+        end)
+    end
     keyBox.FocusLost:Connect(function(enter) if enter then submit(keyBox.Text) end end)
 
     if pasteBtn then
@@ -1100,15 +1483,8 @@ function KeySystem.new(opts)
     if cfg.KeyForge then task.spawn(getClient) end
 
     if glass then
-        local WHITE = rgb(255, 255, 255)
-        local function nseq(points)
-            local kps = {}
-            for i, p in ipairs(points) do kps[i] = NumberSequenceKeypoint.new(p[1], p[2]) end
-            return NumberSequence.new(kps)
-        end
         -- el fondo es vidrio oscuro y todo lo de encima son velos blancos muy tenues (o pozos
         -- oscuros para el input): capas neutras que no se ensucian con los colores del juego
-        local BLACK = rgb(0, 0, 0)
         local surf = {
             { Theme.Panel, WHITE, 0.965 }, { Theme.Element, WHITE, 0.955 }, { Theme.Row, WHITE, 0.94 },
             { Theme.RowHover, WHITE, 0.89 }, { Theme.Input, BLACK, 0.72 }, { Theme.Stroke, WHITE, 0.9 },
@@ -1152,10 +1528,10 @@ function KeySystem.new(opts)
         -- tinte de acento por la esquina y reflejo en la parte superior (detras del contenido)
         create("Frame", {
             Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Accent, ZIndex = 0, Parent = root,
-        }, { corner(14), create("UIGradient", { Rotation = 35, Transparency = nseq({ { 0, 0.8 }, { 0.5, 1 }, { 1, 1 } }) }) })
+        }, { corner(12), create("UIGradient", { Rotation = 35, Transparency = nseq({ { 0, 0.8 }, { 0.5, 1 }, { 1, 1 } }) }) })
         create("Frame", {
             Size = UDim2.new(1, 0, 0, 150), BackgroundColor3 = WHITE, ZIndex = 0, Parent = root,
-        }, { corner(14), create("UIGradient", { Rotation = 90, Transparency = nseq({ { 0, 0.88 }, { 1, 1 } }) }) })
+        }, { corner(12), create("UIGradient", { Rotation = 90, Transparency = nseq({ { 0, 0.88 }, { 1, 1 } }) }) })
         -- el borde pasa a ser de luz: brillo fuerte del lado del mouse y rebote suave enfrente
         if rootStroke then
             rootStroke.Color, rootStroke.Transparency, rootStroke.Thickness = WHITE, 0, 1.5
@@ -1182,14 +1558,26 @@ function KeySystem.new(opts)
     -- en cristal la tarjeta entra con un pequeno rebote, como una gota
     tween(uiScale, { Scale = baseScale }, glass and 0.55 or 0.4, glass and Enum.EasingStyle.Back or Enum.EasingStyle.Quart)
     if logoImg then
-        logoImg.Rotation = -12
-        tween(logoImg, { Rotation = 0 }, 0.6, Enum.EasingStyle.Back)
-    end
-    task.delay(0.5, function()
-        if sheen.Parent then
-            tween(sheen, { Position = UDim2.new(1, 20, -0.5, 0) }, 0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+        if J > 0 then
+            -- la galleta entra girando un poco y con un pop; luego su glow aparece y "respira" lento
+            logoImg.Rotation = -14
+            logoScale.Scale = 0.7
+            tween(logoImg, { Rotation = 0 }, 0.7, Enum.EasingStyle.Back)
+            tween(logoScale, { Scale = 1 }, 0.6, Enum.EasingStyle.Back)
+            task.delay(0.15, function()
+                if not logoGlow.Parent then return end
+                local tw = tween(logoGlow, { ImageTransparency = GLOW_REST }, 0.6, Enum.EasingStyle.Quad)
+                tw.Completed:Once(function(state)
+                    if state ~= Enum.PlaybackState.Completed or not logoGlow.Parent or self.Done then return end
+                    TweenService:Create(logoGlow, TweenInfo.new(2.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut,
+                        -1, true), { Size = UDim2.fromOffset(GLOW_SIZE + 8, GLOW_SIZE + 8) }):Play()
+                end)
+            end)
+        else
+            logoGlow.ImageTransparency = GLOW_REST
         end
-    end)
+    end
+    task.delay(0.5, function() playShine() end)
 
     local lockLeft = (locks[cfg.Id] or 0) - os.clock()
     if lockLeft > 0.5 then
