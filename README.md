@@ -4,11 +4,13 @@ Librería de UI para Roblox escrita en Luau, más un **Key System** opcional que
 
 | Archivo | Qué es | Versión |
 | --- | --- | --- |
-| `CookiesLib.lua` | Librería de UI (ventana, pestañas, secciones, elementos, temas, configs, búsqueda, notificaciones, diálogos) | **3.5.0** |
-| `Cookieskeysystem.lua` | Ventana de verificación de keys (lista local, URL remota, función propia o KeyForge) | **2.0.0** |
+| `CookiesLib.lua` | Librería de UI (ventana, pestañas, secciones, elementos, temas, configs, búsqueda, notificaciones, diálogos) | **3.9.0** |
+| `Cookieskeysystem.lua` | Ventana de verificación de keys (lista local, URL remota, función propia o KeyForge) | **2.2.0** |
 | `CookiesDemo.lua` | Menú de prueba con todos los elementos | — |
+| `CookiesLib-Demo-3.9.lua` | Demo corta de los efectos de la 3.9 (glaseado, lluvias, easter eggs) | — |
+| `Cookieskeysystem-Test-2.2.lua` | Prueba rápida del Key System 2.2 (key: `COOKIE-123`) | — |
 
-**Lo que incluye la UI:** ventana arrastrable y redimensionable · intro animada · **8 temas con cambio en vivo** · color de acento personalizable · pestañas con icono y badges · secciones minimizables · búsqueda global (`Ctrl+F`) · tooltips automáticos · 20 tipos de elementos · diálogos de confirmación · notificaciones con iconos · guardado y **auto-carga** de configs · **recuerda tamaño, posición, pestaña y ajustes** entre ejecuciones · marca de agua con FPS/ping · lista de keybinds · diseño adaptable a PC y móvil.
+**Lo que incluye la UI:** estilo **galleta glaseada** (dorado, contorno chocolate y chispas de colores) · estilo **Glass** (cristal) · nivel de efectos **Juice** (`Full` / `Subtle` / `Off`) · ventana arrastrable y redimensionable · intro animada · **8 temas con cambio en vivo** (con ola de glaseado al cambiar) · color de acento personalizable · pestañas con icono y badges · secciones minimizables · búsqueda global (`Ctrl+F`) · tooltips automáticos · 20 tipos de elementos · diálogos de confirmación · notificaciones con iconos · guardado y **auto-carga** de configs · **recuerda tamaño, posición, pestaña y ajustes** entre ejecuciones · marca de agua con FPS/ping · lista de keybinds · easter eggs · diseño adaptable a PC y móvil.
 
 ---
 
@@ -30,17 +32,45 @@ Librería de UI para Roblox escrita en Luau, más un **Key System** opcional que
 14. [Búsqueda global](#búsqueda-global)
 15. [Tooltips](#tooltips)
 16. [Temas](#temas)
-17. [Configuración global](#configuración-global)
-18. [Estado guardado de la interfaz](#estado-guardado-de-la-interfaz)
-19. [Pestaña de ajustes](#pestaña-de-ajustes)
-20. [Key System](#key-system)
-21. [Ejemplo completo](#ejemplo-completo)
-22. [Notas y solución de problemas](#notas-y-solución-de-problemas)
-23. [Créditos y licencias](#créditos-y-licencias)
+17. [Efectos, estilo Glass y easter eggs](#efectos-estilo-glass-y-easter-eggs)
+18. [Configuración global](#configuración-global)
+19. [Estado guardado de la interfaz](#estado-guardado-de-la-interfaz)
+20. [Pestaña de ajustes](#pestaña-de-ajustes)
+21. [Key System](#key-system)
+22. [Ejemplo completo](#ejemplo-completo)
+23. [Notas y solución de problemas](#notas-y-solución-de-problemas)
+24. [Créditos y licencias](#créditos-y-licencias)
 
 ---
 
 ## Novedades
+
+### CookiesLib 3.9.0
+
+- **Estilo galleta glaseada** en toda la UI: tonos dorados con base más oscura, contorno chocolate tipo sticker, brillo (gloss) en botones y chispas de colores que siguen al tema.
+- **Glaseado con chispas** en sliders, barras de progreso y la barra de carga; los toggles sueltan chispas al encenderse; los botones principales son "galletas gruesas" que se hunden al presionarlos y sueltan migajas.
+- **Glow suave detrás del logo:** una sola imagen radial (sin anillos). Se genera sola con `EditableImage` o puedes usar tu propia textura con `Config.Assets.Glow`.
+- **Ola de sabor:** al cambiar de tema, un barrido de glaseado recorre la ventana.
+- **Juice:** nivel de efectos `"Full"` (por defecto), `"Subtle"` (sin partículas) u `"Off"`. Se elige desde el personalizador o con `Window:SetJuice()`.
+- **Easter eggs:** clicks en el logo, código Konami y palabras secretas en la búsqueda (ver [Easter eggs](#easter-eggs)). También por código: `Library:CookieRain()`, `Library:DonutRain()`, `Library:Rainbow(segundos)`.
+- **Rendimiento:** las partículas salen de un pool (máximo 24 por ventana) y las animaciones en reposo son tweens del motor; nada se crea en cada frame.
+- La intro es la original (logo + barra de carga).
+
+Es **compatible** con los scripts hechos para versiones anteriores: no hace falta cambiar nada para actualizar.
+
+### Key System 2.2.0
+
+- **Mismo estilo que CookiesLib 3.9:** título con la letra de la marca, números de los pasos dorados con contorno chocolate y bordes consistentes.
+- **Glow suave detrás del logo** que respira lento. **Easter egg:** 5 clicks rápidos en la galleta y da una vuelta soltando migajas.
+- **Botón Verify 3D:** cara dorada sobre una base oscura. Se hunde al presionar (y mientras verifica), hace una onda desde el click y cada 5 s le cruza un brillo.
+- **Key correcta:** el botón se pone verde con chispas y destellos, y la galleta da un salto.
+- **Key incorrecta:** sacudida suave y continua, migajas desde el input y el botón parpadea en rojo.
+- Detalles: el input se pone dorado al enfocarlo, el punto de estado late mientras carga, la casilla salta con chispas, *Get key* / *Join Discord* tienen brillo y rebote, la X del cierre gira.
+- Opciones nuevas: `Juice` y `GlowAsset`. Los colores de galleta (`AccentDeep`, `Chocolate`, `Shadow`) se calculan solos con cualquier tema o `Accent`.
+- Sigue siendo **compatible**: misma API y mismo flujo de KeyForge.
+
+<details>
+<summary><b>Versiones anteriores (CookiesLib 3.5.0 · Key System 2.0.0)</b></summary>
 
 ### CookiesLib 3.5.0
 
@@ -65,6 +95,8 @@ Es **compatible** con los scripts hechos para la 3.4.0: no hace falta cambiar na
 - La lista de `KeyUrl` se guarda en caché 30 s.
 - Los errores de conexión **no cuentan** como intento fallido.
 - El bloqueo por intentos **sobrevive** a re-ejecutar el script en la misma partida.
+
+</details>
 
 ---
 
@@ -461,6 +493,9 @@ Las opciones que no son `Theme`, `Config` ni una sub-configuración (`Tab`, `Sec
 | `RememberLayout` | `true` | Recuerda la interfaz entre ejecuciones (ver [Estado guardado](#estado-guardado-de-la-interfaz)) |
 | `DisplayOrder` | `50` | `DisplayOrder` del `ScreenGui` |
 | `Corner` | `12` | Radio de las esquinas de la ventana |
+| `Style` | `"Default"` | `"Glass"` para el estilo cristal (ver [Estilo Glass](#estilo-glass)) |
+| `Customizer` | `true` | Botón en la barra superior para cambiar estilo, efectos y colores |
+| `StatusCard` | `true` | Tarjeta con la marca y el tiempo de sesión sobre el perfil |
 | `ConfigFolder` | `"CookiesHub"` | Carpeta de configs y del estado guardado |
 
 ### Intro
@@ -1303,10 +1338,70 @@ Library:SetTheme("Lava")   -- también aparece en el selector de Ajustes
 | `Accent`, `AccentHi`, `AccentSoft`, `OnAccent` | Color de acento, su versión clara, su fondo suave y el color del texto sobre el acento |
 | `Text`, `Muted`, `Dim` | Textos |
 | `Success`, `Warning`, `Error` | Estados |
+| `AccentDeep`, `Chocolate`, `Shadow` | Estilo galleta: base oscura de los botones 3D, contorno chocolate y sombra cálida |
 
-Al cambiar `Accent`, `AccentHi`, `AccentSoft` y `OnAccent` se recalculan solos si no los defines.
+Al cambiar `Accent`, `AccentHi`, `AccentSoft`, `OnAccent`, `AccentDeep` y `Chocolate` se recalculan solos si no los defines.
 
 > Usa colores distintos para cada clave. Si dos claves comparten exactamente el mismo color, la librería no puede saber cuál de las dos repintar al cambiar de tema.
+
+---
+
+## Efectos, estilo Glass y easter eggs
+
+### Juice (nivel de efectos)
+
+| Nivel | Qué incluye |
+| --- | --- |
+| `"Full"` (por defecto) | Todo: rebotes, brillos, chispas de colores, migajas, lluvias y easter eggs |
+| `"Subtle"` | Rebotes y brillos suaves, sin partículas |
+| `"Off"` | Sin animaciones decorativas ni decoración (más ligero para móviles lentos) |
+
+```lua
+Library:Configure({ Juice = "Subtle" })   -- antes de crear la ventana
+Window:SetJuice("Off", true)              -- en vivo; true = se guarda para la próxima vez
+print(Window:GetJuice())                  -- "Full" | "Subtle" | "Off"
+```
+
+El usuario también lo cambia desde el **personalizador** (botón de la barra superior).
+
+### Estilo Glass
+
+Vidrio oscuro translúcido con tinte de acento, reflejo y bordes de luz que siguen al mouse.
+
+```lua
+Library:CreateWindow({ Title = "Cookies Hub", Style = "Glass" })
+Window:SetGlass(true, true)               -- en vivo; true = se guarda
+```
+
+### Glow del logo
+
+El resplandor detrás del logo es **una sola imagen** radial teñida con el acento. Se genera sola con `EditableImage`; si el juego no lo permite, simplemente no aparece. Si prefieres usar tu propia textura (un círculo blanco que se desvanece a transparente):
+
+```lua
+Library:Configure({ Assets = { Glow = "rbxassetid://TU_ID" } })
+```
+
+### Easter eggs
+
+Solo funcionan con `Juice = "Full"`.
+
+| Cómo | Qué pasa |
+| --- | --- |
+| 5 clicks rápidos en el logo del header | La galleta da una vuelta con migajas y chispas |
+| Seguir hasta 12 clicks | Lluvia de galletas |
+| Código Konami (↑ ↑ ↓ ↓ ← → ← → B A) | Modo arcoíris + lluvia de donas |
+| Escribir en la búsqueda `cookie` / `galleta` | Lluvia de galletas |
+| Escribir `donut` / `dona` | Lluvia de donas |
+| Escribir `rainbow` / `arcoiris` / `sprinkles` / `chispas` | Modo arcoíris |
+| 5 clicks rápidos en el logo del Key System | La galleta da una vuelta |
+
+Por código:
+
+```lua
+Library:CookieRain()
+Library:DonutRain()
+Library:Rainbow(10)   -- segundos
+```
 
 ---
 
@@ -1320,9 +1415,12 @@ Library:Configure({
     AnimationSpeed = 1,
     EasingStyle = Enum.EasingStyle.Quint,
     EasingDirection = Enum.EasingDirection.Out,
+    Juice = "Full",                   -- "Full" | "Subtle" | "Off"
+    Assets = { Glow = nil },          -- textura propia para los glows (opcional)
 
     Window  = { Width = 740, Height = 500, Shadow = true, AccentLine = true, SmoothDrag = true,
-                RememberLayout = true, UIScale = 1, SearchShortcut = true },
+                RememberLayout = true, UIScale = 1, SearchShortcut = true,
+                Style = "Default", Customizer = true, StatusCard = true },
     Tab     = { Columns = 2, Padding = 12, Gap = 10, IconSize = 20, IconTint = true, SingleColumnBelow = 440 },
     Section = { Collapsible = true, Minimized = false, Columns = 1, MaxHeight = nil, Gap = 6, ColumnGap = 8, Corner = 10 },
     Element = { Height = 32, Corner = 7 },
@@ -1375,7 +1473,7 @@ Créala **al final** del script: así la auto-carga encuentra todos tus flags.
 
 ## Key System
 
-`Cookieskeysystem.lua` muestra una ventana para pedir una key antes de cargar tu hub. Comparte el estilo de la librería; si le pasas `Library`, usa su tema (incluido el que eligió el usuario) y sus fuentes.
+`Cookieskeysystem.lua` muestra una ventana para pedir una key antes de cargar tu hub. Comparte el estilo de galleta glaseada de la librería (botón Verify 3D, glow en el logo, chispas al validar); si le pasas `Library`, usa su tema (incluido el que eligió el usuario), sus fuentes y su nivel de `Juice`.
 
 ```lua
 local Library   = loadstring(game:HttpGet("https://raw.githubusercontent.com/Lilwero20/CookiesLib/main/CookiesLib.lua"))()
@@ -1447,7 +1545,10 @@ Los espacios al inicio y al final de la key se ignoran. Con `CaseSensitive = fal
 | `FileName` | `nil` | Archivo fijo para la key. Sin él, se usa `Folder/keys/<Id>.txt` (uno por script) |
 | `MaxAttempts` | `5` | Intentos fallidos antes del bloqueo temporal |
 | `Cooldown` | `15` | Segundos de bloqueo |
-| `Blur` | `true` | Desenfoque de fondo |
+| `Style` | `nil` | `"Glass"` para la tarjeta de cristal con bordes de luz |
+| `Juice` | el de `Library` o `"Full"` | `"Full"`, `"Subtle"` (sin partículas) u `"Off"` (sin animaciones decorativas) |
+| `GlowAsset` | `nil` | Textura propia para el glow del logo. Sin ella se genera sola (o se usa `Library.Config.Assets.Glow`) |
+| `Blur` | `true` | Se mantiene por compatibilidad: el fondo solo se oscurece, sin desenfoque |
 | `Shadow` | `true` | Sombra detrás de la ventana |
 | `DisplayOrder` | `100` | `DisplayOrder` del `ScreenGui` |
 | `OnSuccess` | `nil` | `function(key)` al validar |
@@ -1717,6 +1818,9 @@ Window:Notify({ Title = "Cookies Hub", Content = "Cargado correctamente", Type =
 - **Mis loops siguen después de *Unload UI*:** detenlos con `Window:OnUnload(function() running = false end)`.
 - **`Lucide.GetAsset` falla:** el nombre del icono no existe; usa el helper con `pcall` de la sección de iconos.
 - **El Key System no recuerda la key:** el executor debe soportar `writefile/readfile/isfolder/makefolder/isfile`, y la casilla *Remember key* debe estar marcada al validar.
+- **No veo el glow detrás del logo:** ese juego no permite `EditableImage`. Sube tu propia textura de círculo suave y pásala con `Library:Configure({ Assets = { Glow = "rbxassetid://..." } })` (o `GlowAsset` en el Key System).
+- **Los easter eggs no hacen nada:** necesitan `Juice = "Full"`.
+- **Va lento en móvil:** usa `Juice = "Subtle"` u `"Off"`.
 - **Dos ventanas:** `Library.Flags` es global, así que los nombres de `Flag` deben ser únicos entre ventanas.
 
 ---
